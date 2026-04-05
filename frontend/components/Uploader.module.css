@@ -1,0 +1,67 @@
+.uploader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.uploader::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border: 2px dashed rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
+  margin: 10px;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.dragActive::before {
+  border-color: var(--accent-color);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.fileInput {
+  display: none;
+}
+
+.iconWrapper {
+  margin-bottom: 1.5rem;
+  color: var(--accent-color);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 1.5rem;
+  border-radius: 50%;
+  animation: pulse-glow 3s infinite ease-in-out;
+}
+
+.uploader h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.uploader p {
+  color: var(--text-muted);
+  margin: 0 0 2rem 0;
+}
+
+.browseBtn {
+  background: var(--accent-color);
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.uploader:hover .browseBtn {
+  background: var(--accent-hover);
+}

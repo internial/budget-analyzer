@@ -1,0 +1,79 @@
+name: Deploy Fraud, Waste, and Abuse Budget Analyzer
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Setup Terraform environment
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Initialize Terraform (required before fmt/validate/plan)
+      - name: Initialize Terraform
+        working-directory: terraform
+        run: terraform init
+
+      # Run terraform fmt to check syntax and standard formatting
+      - name: Run terraform fmt
+        working-directory: terraform
+        run: terraform fmt -check
+
+      # Run terraform validate to ensure configurations are valid
+      - name: Run terraform validate
+        working-directory: terraform
+        run: terraform validate
+
+      # Run terraform plan to preview infrastructure changes
+      - name: Run terraform plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      # Run terraform apply to automatically provision tracked resources
+      - name: Run terraform apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+
+      # Package Lambda functions locally into ZIP files
+      - name: Package Lambda functions
+        run: |
+          cd lambda/upload_handler && zip -r ../../upload_handler.zip . && cd ../..
+          cd lambda/document_processor && zip -r ../../document_processor.zip . && cd ../..
+          cd lambda/ai_analyzer && zip -r ../../ai_analyzer.zip . && cd ../..
+          cd lambda/textract_callback_handler && zip -r ../../textract_callback_handler.zip . && cd ../..
+
+      # Deploy Lambda code explicitly using the AWS CLI
+      - name: Deploy Lambda code
+        run: |
+          aws lambda update-function-code --function-name upload_handler --zip-file fileb://upload_handler.zip
+          aws lambda update-function-code --function-name document_processor --zip-file fileb://document_processor.zip
+          aws lambda update-function-code --function-name ai_analyzer --zip-file fileb://ai_analyzer.zip
+          aws lambda update-function-code --function-name textract_callback_handler --zip-file fileb://textract_callback_handler.zip
+          
+          # Wait for function code updates to finalize
+          sleep 10
+
+      # Run a test invocation to ensure lambda execution is functioning
+      - name: Run a test invocation
+        run: |
+          aws lambda invoke \
+            --function-name ai_analyzer \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"httpMethod": "GET", "queryStringParameters": {"documentId": "test-health-check"}}' \
+            response.json
+          
+          cat response.json
