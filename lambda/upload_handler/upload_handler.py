@@ -15,6 +15,10 @@ from typing import Any
 
 import boto3
 import hashlib
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core.lambda_launcher import patch_all
+
+patch_all()
 
 dynamodb = boto3.client("dynamodb")
 s3 = boto3.client("s3")

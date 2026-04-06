@@ -112,12 +112,7 @@ resource "aws_s3_bucket_ownership_controls" "uploads" {
   }
 }
 
-resource "aws_s3_bucket_versioning" "uploads" {
-  bucket = aws_s3_bucket.uploads.id
-  versioning_configuration {
-    status = "Suspended"
-  }
-}
+
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "uploads" {
   bucket = aws_s3_bucket.uploads.id
@@ -186,13 +181,7 @@ resource "aws_s3_bucket_ownership_controls" "uploads_replica" {
   }
 }
 
-resource "aws_s3_bucket_versioning" "uploads_replica" {
-  provider = aws.replica
-  bucket   = aws_s3_bucket.uploads_replica.id
-  versioning_configuration {
-    status = "Suspended"
-  }
-}
+
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "uploads_replica" {
   provider = aws.replica
@@ -261,8 +250,6 @@ resource "aws_iam_role_policy" "s3_replication" {
 
 resource "aws_s3_bucket_replication_configuration" "uploads" {
   depends_on = [
-    aws_s3_bucket_versioning.uploads,
-    aws_s3_bucket_versioning.uploads_replica,
     aws_iam_role_policy.s3_replication,
   ]
 
@@ -415,6 +402,30 @@ resource "aws_dynamodb_table" "results" {
   }
 }
 
+resource "aws_sqs_queue" "budget_analyzer_dlq" {
+  name                      = "budget-analyzer-dlq"
+  message_retention_seconds = 1209600 # 14 days
+}
+
+resource "aws_cloudwatch_metric_alarm" "budget_analyzer_dlq_alarm" {
+  alarm_name          = "budget-analyzer-dlq-messages-visible-alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300 # 5 minutes
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "Alarm when budget-analyzer-dlq has messages"
+  dimensions = {
+    QueueName = aws_sqs_queue.budget_analyzer_dlq.name
+  }
+  actions_enabled = true
+  alarm_actions   = [aws_sns_topic.budget_alerts.arn]
+  ok_actions      = [aws_sns_topic.budget_alerts.arn]
+}
+
+
 ############################
 # IAM — Lambda roles (least privilege)
 ############################
@@ -475,10 +486,13 @@ resource "aws_iam_role_policy" "upload_handler" {
       {
         Effect = "Allow"
         Action = [
+          "logs:CreateLogGroup",
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
         ]
-        Resource = "${aws_cloudwatch_log_group.upload_handler.arn}:*"
+        Resource = "*"
       },
       {
         Effect = "Allow"
@@ -491,6 +505,11 @@ resource "aws_iam_role_policy" "upload_handler" {
           aws_s3_bucket.uploads.arn,
           "${aws_s3_bucket.uploads.arn}/uploads/*"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.budget_analyzer_dlq.arn
       }
     ]
   })
@@ -522,7 +541,9 @@ resource "aws_iam_role_policy" "document_processor" {
         Effect = "Allow"
         Action = [
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
         ]
         Resource = "${aws_cloudwatch_log_group.document_processor.arn}:*"
       },
@@ -561,6 +582,11 @@ resource "aws_iam_role_policy" "document_processor" {
         Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
         Resource = aws_lambda_function.ai_analyzer.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.budget_analyzer_dlq.arn
       }
     ]
   })
@@ -607,7 +633,9 @@ resource "aws_iam_role_policy" "ai_analyzer" {
         Effect = "Allow"
         Action = [
           "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "logs:PutLogEvents",
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
         ]
         Resource = "${aws_cloudwatch_log_group.ai_analyzer.arn}:*"
       },
@@ -631,6 +659,11 @@ resource "aws_iam_role_policy" "ai_analyzer" {
           aws_dynamodb_table.results.arn,
           "${aws_dynamodb_table.results.arn}/index/file_hash-index"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.budget_analyzer_dlq.arn
       }
     ]
   })
@@ -747,6 +780,14 @@ resource "aws_lambda_function" "document_processor" {
     }
   }
 
+  dead_letter_config {
+    target_arn = aws_sqs_queue.budget_analyzer_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
+  }
+
   depends_on = [aws_cloudwatch_log_group.document_processor]
 }
 
@@ -766,6 +807,14 @@ resource "aws_lambda_function" "ai_analyzer" {
       TABLE_NAME       = aws_dynamodb_table.results.name
       BEDROCK_MODEL_ID = var.bedrock_model_id
     }
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.budget_analyzer_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   depends_on = [aws_cloudwatch_log_group.ai_analyzer]
@@ -808,6 +857,14 @@ resource "aws_lambda_function" "upload_handler" {
       UPLOAD_BUCKET = aws_s3_bucket.uploads.bucket
       DYNAMODB_TABLE_NAME = aws_dynamodb_table.results.name
     }
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.budget_analyzer_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   depends_on = [aws_cloudwatch_log_group.upload_handler]
@@ -1104,4 +1161,9 @@ resource "aws_budgets_budget" "monthly" {
   }
 
   depends_on = [aws_sns_topic_policy.budget_alerts]
+}
+
+output "budget_analyzer_dlq_arn" {
+  description = "The ARN of the budget analyzer SQS Dead Letter Queue"
+  value       = aws_sqs_queue.budget_analyzer_dlq.arn
 }
