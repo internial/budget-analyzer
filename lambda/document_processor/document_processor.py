@@ -16,6 +16,10 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core.lambda_launcher import patch_all
+
+patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -30,6 +34,7 @@ TEXTRACT_SNS_TOPIC_ARN = os.environ["TEXTRACT_SNS_TOPIC_ARN"]
 TEXTRACT_SERVICE_ROLE_ARN = os.environ["TEXTRACT_SERVICE_ROLE_ARN"]
 
 
+@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # S3 sends a batch of records; process each new object.
     if "Records" not in event:

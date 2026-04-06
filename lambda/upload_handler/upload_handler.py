@@ -60,6 +60,7 @@ def _get_results_by_hash(file_hash: str) -> dict[str, Any] | None:
     return None
 
 
+@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if event.get("httpMethod") not in (None, "POST"):
         return _response(405, {"message": "Method not allowed"})

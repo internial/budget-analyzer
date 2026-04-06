@@ -14,6 +14,10 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core.lambda_launcher import patch_all
+
+patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -27,6 +31,7 @@ BEDROCK_MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 table = dynamodb.Table(TABLE_NAME)
 
 
+@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # --- API Gateway: fetch prior result ---
     if event.get("httpMethod") == "GET":
