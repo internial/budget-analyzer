@@ -55,7 +55,7 @@ resource "aws_sns_topic_policy" "textract_notifications" {
         Principal = {
           Service = "textract.amazonaws.com"
         }
-        Action = "sns:Publish"
+        Action   = "sns:Publish"
         Resource = aws_sns_topic.textract_notifications.arn
       }
     ]
@@ -94,6 +94,13 @@ resource "aws_sns_topic_subscription" "budget_email" {
 
 resource "aws_s3_bucket" "uploads" {
   bucket = var.s3_bucket_name
+}
+
+resource "aws_s3_bucket_versioning" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "uploads" {
@@ -161,6 +168,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
 resource "aws_s3_bucket" "uploads_replica" {
   provider = aws.replica
   bucket   = "${var.s3_bucket_name}-replica-${local.account_id}"
+  acl      = "private"
+
+  versioning {
+    enabled = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "budget-analyzer-uploads-replica"
+  })
 }
 
 resource "aws_s3_bucket_public_access_block" "uploads_replica" {
@@ -249,22 +265,21 @@ resource "aws_iam_role_policy" "s3_replication" {
 }
 
 resource "aws_s3_bucket_replication_configuration" "uploads" {
-  depends_on = [
-    aws_iam_role_policy.s3_replication,
-  ]
-
   role   = aws_iam_role.s3_replication.arn
   bucket = aws_s3_bucket.uploads.id
 
   rule {
-    id     = "replicate-all-objects"
+    id = "replicate-all-objects"
+    priority = 1
     status = "Enabled"
 
     delete_marker_replication {
       status = "Disabled"
     }
 
-    filter {}
+    filter {
+      prefix = ""
+    }
 
     destination {
       bucket        = aws_s3_bucket.uploads_replica.arn
@@ -574,8 +589,8 @@ resource "aws_iam_role_policy" "document_processor" {
         Resource = "*"
       },
       {
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = aws_iam_role.textract_service_role.arn
       },
       {
@@ -773,9 +788,9 @@ resource "aws_lambda_function" "document_processor" {
 
   environment {
     variables = {
-      UPLOAD_BUCKET     = aws_s3_bucket.uploads.bucket
-      AI_ANALYZER_NAME  = aws_lambda_function.ai_analyzer.function_name
-      TEXTRACT_SNS_TOPIC_ARN = aws_sns_topic.textract_notifications.arn
+      UPLOAD_BUCKET             = aws_s3_bucket.uploads.bucket
+      AI_ANALYZER_NAME          = aws_lambda_function.ai_analyzer.function_name
+      TEXTRACT_SNS_TOPIC_ARN    = aws_sns_topic.textract_notifications.arn
       TEXTRACT_SERVICE_ROLE_ARN = aws_iam_role.textract_service_role.arn
     }
   }
@@ -834,7 +849,7 @@ resource "aws_lambda_function" "textract_callback_handler" {
   environment {
     variables = {
       AI_ANALYZER_NAME = aws_lambda_function.ai_analyzer.function_name
-      UPLOAD_BUCKET = aws_s3_bucket.uploads.bucket
+      UPLOAD_BUCKET    = aws_s3_bucket.uploads.bucket
     }
   }
 
@@ -854,7 +869,7 @@ resource "aws_lambda_function" "upload_handler" {
 
   environment {
     variables = {
-      UPLOAD_BUCKET = aws_s3_bucket.uploads.bucket
+      UPLOAD_BUCKET       = aws_s3_bucket.uploads.bucket
       DYNAMODB_TABLE_NAME = aws_dynamodb_table.results.name
     }
   }
@@ -906,9 +921,9 @@ resource "aws_lambda_permission" "sns_invoke_textract_callback_handler" {
 }
 
 resource "aws_sns_topic_subscription" "textract_notifications_to_lambda" {
-  topic_arn = aws_sns_topic.textract_notifications.arn
-  protocol  = "lambda"
-  endpoint  = aws_lambda_function.textract_callback_handler.arn
+  topic_arn  = aws_sns_topic.textract_notifications.arn
+  protocol   = "lambda"
+  endpoint   = aws_lambda_function.textract_callback_handler.arn
   depends_on = [aws_lambda_permission.sns_invoke_textract_callback_handler]
 }
 
@@ -1014,8 +1029,8 @@ resource "aws_api_gateway_deployment" "main" {
 
 resource "aws_api_gateway_stage" "prod" {
   deployment_id = aws_api_gateway_deployment.main.id
-  rest_api_id     = aws_api_gateway_rest_api.main.id
-  stage_name      = "prod"
+  rest_api_id   = aws_api_gateway_rest_api.main.id
+  stage_name    = "prod"
 
   xray_tracing_enabled = false
 }
@@ -1137,27 +1152,27 @@ resource "aws_budgets_budget" "monthly" {
   time_unit         = "MONTHLY"
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 50
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_sns_topic_arns    = [aws_sns_topic.budget_alerts.arn]
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 50
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.budget_alerts.arn]
   }
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_sns_topic_arns    = [aws_sns_topic.budget_alerts.arn]
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 80
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.budget_alerts.arn]
   }
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 100
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_sns_topic_arns    = [aws_sns_topic.budget_alerts.arn]
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 100
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.budget_alerts.arn]
   }
 
   depends_on = [aws_sns_topic_policy.budget_alerts]

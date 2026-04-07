@@ -28,9 +28,9 @@ output "dynamodb_table_name" {
 output "lambda_arns" {
   description = "Map of logical names to Lambda function ARNs."
   value = {
-    upload_handler       = aws_lambda_function.upload_handler.arn
-    document_processor   = aws_lambda_function.document_processor.arn
-    ai_analyzer          = aws_lambda_function.ai_analyzer.arn
+    upload_handler     = aws_lambda_function.upload_handler.arn
+    document_processor = aws_lambda_function.document_processor.arn
+    ai_analyzer        = aws_lambda_function.ai_analyzer.arn
   }
 }
 

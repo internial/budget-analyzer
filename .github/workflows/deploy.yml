@@ -51,10 +51,29 @@ jobs:
       # Package Lambda functions locally into ZIP files
       - name: Package Lambda functions
         run: |
-          cd lambda/upload_handler && zip -r ../../upload_handler.zip . && cd ../..
-          cd lambda/document_processor && zip -r ../../document_processor.zip . && cd ../..
-          cd lambda/ai_analyzer && zip -r ../../ai_analyzer.zip . && cd ../..
-          cd lambda/textract_callback_handler && zip -r ../../textract_callback_handler.zip . && cd ../..
+          # Package upload_handler
+          mkdir -p upload_handler_package/python
+          pip install aws_xray_sdk -t upload_handler_package/python/lib/python3.11/site-packages
+          cp lambda/upload_handler/upload_handler.py upload_handler_package/
+          cd upload_handler_package && zip -r ../upload_handler.zip . && cd ..
+
+          # Package document_processor
+          mkdir -p document_processor_package/python
+          pip install aws_xray_sdk -t document_processor_package/python/lib/python3.11/site-packages
+          cp lambda/document_processor/document_processor.py document_processor_package/
+          cd document_processor_package && zip -r ../document_processor.zip . && cd ..
+
+          # Package ai_analyzer
+          mkdir -p ai_analyzer_package/python
+          pip install aws_xray_sdk -t ai_analyzer_package/python/lib/python3.11/site-packages
+          cp lambda/ai_analyzer/ai_analyzer.py ai_analyzer_package/
+          cd ai_analyzer_package && zip -r ../ai_analyzer.zip . && cd ..
+
+          # Package textract_callback_handler
+          mkdir -p textract_callback_handler_package/python
+          pip install aws_xray_sdk -t textract_callback_handler_package/python/lib/python3.11/site-packages
+          cp lambda/textract_callback_handler/textract_callback_handler.py textract_callback_handler_package/
+          cd textract_callback_handler_package && zip -r ../textract_callback_handler.zip . && cd ..
 
       # Deploy Lambda code explicitly using the AWS CLI
       - name: Deploy Lambda code

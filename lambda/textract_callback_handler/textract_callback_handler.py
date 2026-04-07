@@ -6,6 +6,10 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core.lambda_launcher import patch_all
+
+patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -17,6 +21,7 @@ lambda_client = boto3.client("lambda")
 AI_ANALYZER_NAME = os.environ["AI_ANALYZER_NAME"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"] # This will be needed to fetch the original document if necessary.
 
+@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     logger.info("Received event: %s", json.dumps(event))
 
