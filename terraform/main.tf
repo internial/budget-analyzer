@@ -168,15 +168,24 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
 resource "aws_s3_bucket" "uploads_replica" {
   provider = aws.replica
   bucket   = "${var.s3_bucket_name}-replica-${local.account_id}"
-  acl      = "private"
-
-  versioning {
-    enabled = true
-  }
-
   tags = merge(local.common_tags, {
     Name = "budget-analyzer-uploads-replica"
   })
+}
+
+resource "aws_s3_bucket_acl" "uploads_replica" {
+  provider = aws.replica
+  bucket   = aws_s3_bucket.uploads_replica.id
+  acl      = "private"
+}
+
+resource "aws_s3_bucket_versioning" "uploads_replica" {
+  provider = aws.replica
+  bucket   = aws_s3_bucket.uploads_replica.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "uploads_replica" {
