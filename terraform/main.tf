@@ -278,9 +278,9 @@ resource "aws_s3_bucket_replication_configuration" "uploads" {
   bucket = aws_s3_bucket.uploads.id
 
   rule {
-    id = "replicate-all-objects"
+    id       = "replicate-all-objects"
     priority = 1
-    status = "Enabled"
+    status   = "Enabled"
 
     delete_marker_replication {
       status = "Disabled"
