@@ -33,7 +33,7 @@ variable "bedrock_model_id" {
 variable "budget_limit_usd" {
   description = "Monthly AWS cost budget limit in USD."
   type        = string
-  default     = "30"
+  default     = "5"
 }
 
 variable "budget_start_date" {

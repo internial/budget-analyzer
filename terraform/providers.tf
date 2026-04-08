@@ -13,6 +13,14 @@ terraform {
       version = "~> 2.4"
     }
   }
+
+  backend "s3" {
+    bucket = "budget-analyzer-terraform-state-054041090724"
+    key    = "budget-analyzer/terraform.tfstate"
+    region = "us-east-1"
+    encrypt = true
+    dynamodb_table = "budget-analyzer-terraform-state-lock"
+  }
 }
 
 provider "aws" {

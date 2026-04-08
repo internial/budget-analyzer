@@ -1189,6 +1189,21 @@ resource "aws_budgets_budget" "monthly" {
   depends_on = [aws_sns_topic_policy.budget_alerts]
 }
 
+resource "aws_dynamodb_table" "terraform_state_lock" {
+  name           = "budget-analyzer-terraform-state-lock"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "budget-analyzer-terraform-state-lock"
+  })
+}
+
 output "budget_analyzer_dlq_arn" {
   description = "The ARN of the budget analyzer SQS Dead Letter Queue"
   value       = aws_sqs_queue.budget_analyzer_dlq.arn
