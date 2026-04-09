@@ -1,0 +1,135 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          ["AWS/Lambda", "Invocations", "FunctionName", "upload_handler"],
+          ["AWS/Lambda", "Invocations", "FunctionName", "ai_analyzer"],
+          ["AWS/Lambda", "Invocations", "FunctionName", "document_processor"],
+          ["AWS/Lambda", "Invocations", "FunctionName", "textract_callback_handler"]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Lambda Invocations",
+        "period": 300
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          ["AWS/Lambda", "Errors", "FunctionName", "upload_handler"],
+          ["AWS/Lambda", "Errors", "FunctionName", "ai_analyzer"],
+          ["AWS/Lambda", "Errors", "FunctionName", "document_processor"],
+          ["AWS/Lambda", "Errors", "FunctionName", "textract_callback_handler"]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "Lambda Errors",
+        "period": 300,
+        "stat": "Sum"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          ["AWS/ApiGateway", "Count", "ApiName", "budget-analyzer-rest-api"],
+          ["AWS/ApiGateway", "Latency", ".", "."]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "API Gateway Requests & Latency",
+        "period": 300
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          ["AWS/S3", "AllRequests", "BucketName", "budget-analyzer-uploads"],
+          ["AWS/S3", "BucketSizeBytes", ".", "."]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "S3 Upload Activity",
+        "period": 300
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 12,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "budget_analyzer_results"],
+          ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", ".", "."]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "title": "DynamoDB Usage",
+        "period": 300
+      }
+    },
+    {
+      "type": "alarm",
+      "x": 12,
+      "y": 12,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "alarms": [
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-upload-handler-errors",
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-ai-analyzer-errors",
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-document-processor-errors",
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-dlq-messages-visible-alarm",
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-textract-failures",
+          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-dynamodb-throttled-requests"
+        ],
+        "title": "All Budget Analyzer Alarms"
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 18,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "logGroupNames": [
+          "/aws/lambda/upload_handler",
+          "/aws/lambda/ai_analyzer",
+          "/aws/lambda/document_processor",
+          "/aws/lambda/textract_callback_handler"
+        ],
+        "view": "table",
+        "title": "Recent Lambda Logs",
+        "timeRange": "1h"
+      }
+    }
+  ]
+}
