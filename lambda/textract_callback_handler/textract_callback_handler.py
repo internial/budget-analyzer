@@ -109,6 +109,26 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             else:
                 logger.error("TEXTRACT_FAILURE job %s failed with status: %s", job_id, job_status)
+                document_id, _ = _parse_upload_key(key)
+                file_hash = None
+                try:
+                    head_object_response = s3.head_object(Bucket=bucket, Key=key)
+                    file_hash = head_object_response["Metadata"].get("file_hash")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Unable to read metadata for failed Textract job %s: %s", job_id, exc)
+                lambda_client.invoke(
+                    FunctionName=AI_ANALYZER_NAME,
+                    InvocationType="Event",
+                    Payload=json.dumps(
+                        {
+                            "document_id": document_id,
+                            "normalized_data": {"document_id": document_id, "source_s3_key": key, "records": []},
+                            "extracted_s3_key": "",
+                            "file_hash": file_hash,
+                            "processing_error": f"Textract job failed with status {job_status}.",
+                        }
+                    ).encode("utf-8"),
+                )
 
     return {"statusCode": 200, "body": json.dumps({"ok": True})}
 

@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 from decimal import Decimal
 from typing import Any
 
@@ -51,16 +52,29 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.info("Skipping non pdf/csv key: %s", key)
             continue
 
+        file_hash = _get_file_hash(bucket, key)
+
         if ext == ".pdf":
-            job_id = _extract_pdf_records(bucket, key)
-            logger.info("Textract job started for document_id %s with job_id %s", document_id, job_id)
+            try:
+                pdf_result = _extract_pdf_records(bucket, key, document_id)
+                if pdf_result is None:
+                    continue
+                normalized, out_key = pdf_result
+                _invoke_ai_analyzer(document_id, normalized, out_key, file_hash)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("PDF processing failed for %s: %s", key, exc)
+                _invoke_ai_analyzer_error(
+                    document_id,
+                    key,
+                    file_hash,
+                    f"PDF processing failed before AI analysis: {exc!s}",
+                )
             continue
         
         obj = s3.get_object(Bucket=bucket, Key=key)
         body = obj["Body"].read()
 
         records = _extract_csv_records(body)
-        file_hash = obj.get("Metadata", {}).get("file_hash", "")
 
         normalized = {
             "document_id": document_id,
@@ -68,27 +82,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "records": records,
         }
 
-        out_key = f"extracted/{document_id}.json"
-        s3.put_object(
-            Bucket=bucket,
-            Key=out_key,
-            Body=json.dumps(normalized, default=_json_default).encode("utf-8"),
-            ContentType="application/json",
-        )
-
-        lambda_client.invoke(
-            FunctionName=AI_ANALYZER_NAME,
-            InvocationType="Event",
-            Payload=json.dumps(
-                {
-                    "document_id": document_id,
-                    "normalized_data": normalized,
-                    "extracted_s3_key": out_key,
-                    "file_hash": file_hash,
-                },
-                default=_json_default
-            ).encode("utf-8"),
-        )
+        out_key = _write_normalized(bucket, document_id, normalized)
+        _invoke_ai_analyzer(document_id, normalized, out_key, file_hash)
 
     return {"statusCode": 200, "body": json.dumps({"ok": True})}
 
@@ -103,25 +98,225 @@ def _parse_upload_key(key: str) -> tuple[str, str]:
     return base, ""
 
 
-def _extract_pdf_records(bucket: str, key: str) -> str:
-    """Starts an asynchronous Textract job for PDF documents."""
+def _extract_pdf_records(bucket: str, key: str, document_id: str) -> tuple[dict[str, Any], str] | None:
+    """Try async Textract first; fall back to direct polling if needed."""
     logger.info("Starting Textract document analysis for s3://%s/%s", bucket, key)
+    try:
+        response = textract.start_document_analysis(
+            DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}},
+            FeatureTypes=["TABLES", "FORMS"],
+            NotificationChannel={
+                "SNSTopicArn": TEXTRACT_SNS_TOPIC_ARN,
+                "RoleArn": TEXTRACT_SERVICE_ROLE_ARN,
+            },
+            JobTag=key,
+        )
+        job_id = response["JobId"]
+        logger.info("Textract job started for document_id %s with job_id %s", document_id, job_id)
+        return None
+    except textract.exceptions.InvalidParameterException as exc:
+        logger.warning(
+            "Textract notification flow rejected for s3://%s/%s; falling back to direct polling. %s",
+            bucket,
+            key,
+            exc,
+        )
+
     response = textract.start_document_analysis(
         DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}},
-        FeatureTypes=["TABLES", "FORMS"],  # Request both tables and forms
-        NotificationChannel={
-            "SNSTopicArn": TEXTRACT_SNS_TOPIC_ARN,
-            "RoleArn": os.environ["TEXTRACT_SERVICE_ROLE_ARN"],  # Need to define this in Terraform
-        },
-        JobTag=key,  # Use S3 key as JobTag for correlation
+        FeatureTypes=["TABLES", "FORMS"],
+        JobTag=key,
     )
     job_id = response["JobId"]
-    logger.info("Started Textract job with ID: %s for s3://%s/%s", job_id, bucket, key)
-    return job_id
+    blocks = _wait_for_document_analysis(job_id)
+    records = _records_from_analysis_blocks(blocks)
+
+    normalized = {
+        "document_id": document_id,
+        "source_s3_key": key,
+        "records": records,
+    }
+    out_key = _write_normalized(bucket, document_id, normalized)
+    return normalized, out_key
 
 
+def _wait_for_document_analysis(job_id: str, timeout_seconds: int = 90, poll_seconds: int = 3) -> list[dict[str, Any]]:
+    deadline = time.time() + timeout_seconds
+    first_page: dict[str, Any] | None = None
+
+    while time.time() < deadline:
+        response = textract.get_document_analysis(JobId=job_id)
+        status = response.get("JobStatus")
+        if status == "SUCCEEDED":
+            first_page = response
+            break
+        if status in ("FAILED", "PARTIAL_SUCCESS"):
+            raise RuntimeError(f"Textract job {job_id} finished with status {status}")
+        time.sleep(poll_seconds)
+
+    if first_page is None:
+        raise TimeoutError(f"Timed out waiting for Textract job {job_id}")
+
+    blocks = list(first_page.get("Blocks", []))
+    next_token = first_page.get("NextToken")
+    while next_token:
+        page = textract.get_document_analysis(JobId=job_id, NextToken=next_token)
+        blocks.extend(page.get("Blocks", []))
+        next_token = page.get("NextToken")
+    return blocks
 
 
+def _records_from_analysis_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    table_records = _records_from_table_blocks(blocks)
+    if table_records:
+        return table_records
+
+    lines = [block["Text"] for block in blocks if block.get("BlockType") == "LINE" and "Text" in block]
+    return _records_from_text_lines(lines)
+
+
+def _records_from_table_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {block["Id"]: block for block in blocks if "Id" in block}
+    records: list[dict[str, Any]] = []
+
+    for block in blocks:
+        if block.get("BlockType") != "TABLE":
+            continue
+        cells: list[tuple[int, int, str]] = []
+        for rel in block.get("Relationships", []):
+            if rel.get("Type") != "CHILD":
+                continue
+            for cell_id in rel.get("Ids", []):
+                cell = by_id.get(cell_id)
+                if cell and cell.get("BlockType") == "CELL":
+                    row_idx = int(cell.get("RowIndex", 1))
+                    col_idx = int(cell.get("ColumnIndex", 1))
+                    text = _cell_text(cell, by_id).strip()
+                    cells.append((row_idx, col_idx, text))
+
+        if not cells:
+            continue
+
+        max_row = max(cell[0] for cell in cells)
+        start_row = 1
+        header_text = " ".join(
+            text for _, text in sorted(((col, text) for row, col, text in cells if row == 1), key=lambda item: item[0])
+        ).lower()
+        if any(keyword in header_text for keyword in ("department", "category", "amount", "budget", "total")):
+            start_row = 2
+
+        for row_idx in range(start_row, max_row + 1):
+            row_cells = sorted([(col, text) for (row, col, text) in cells if row == row_idx], key=lambda item: item[0])
+            if not row_cells:
+                continue
+            texts = [text for _, text in row_cells]
+            if len(texts) >= 3:
+                dept, cat, amount_s = texts[0], texts[1], texts[2]
+            elif len(texts) == 2:
+                dept, cat, amount_s = "Unknown", texts[0], texts[1]
+            else:
+                continue
+
+            amount = _parse_amount(amount_s)
+            if amount is None:
+                continue
+            records.append(
+                {
+                    "department": dept or "Unknown",
+                    "category": cat or "Unknown",
+                    "amount": amount,
+                }
+            )
+
+    return records
+
+
+def _cell_text(cell: dict[str, Any], by_id: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for rel in cell.get("Relationships", []):
+        if rel.get("Type") != "CHILD":
+            continue
+        for word_id in rel.get("Ids", []):
+            word = by_id.get(word_id)
+            if word and word.get("BlockType") == "WORD":
+                parts.append(word.get("Text", ""))
+    return " ".join(parts)
+
+
+def _records_from_text_lines(lines: list[str]) -> list[dict[str, Any]]:
+    amount_re = re.compile(r"[\$]?([\d,]+(?:\.\d{2})?)\b")
+    records: list[dict[str, Any]] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        match = amount_re.search(line)
+        if not match:
+            continue
+        amount = _parse_amount(match.group(1))
+        if amount is None:
+            continue
+        label = (line[: match.start()].strip() or line[match.end() :].strip() or "Line item").strip(" -")
+        records.append(
+            {
+                "department": "Unknown",
+                "category": label[:500] or "Unknown",
+                "amount": amount,
+            }
+        )
+    return records if records else [{"department": "Unknown", "category": "Full text (unparsed)", "amount": Decimal("0")}]
+
+
+def _get_file_hash(bucket: str, key: str) -> str:
+    try:
+        head = s3.head_object(Bucket=bucket, Key=key)
+        return head.get("Metadata", {}).get("file_hash", "")
+    except Exception:  # noqa: BLE001
+        logger.exception("Unable to read file_hash metadata for s3://%s/%s", bucket, key)
+        return ""
+
+
+def _write_normalized(bucket: str, document_id: str, normalized: dict[str, Any]) -> str:
+    out_key = f"extracted/{document_id}.json"
+    s3.put_object(
+        Bucket=bucket,
+        Key=out_key,
+        Body=json.dumps(normalized, default=_json_default).encode("utf-8"),
+        ContentType="application/json",
+    )
+    return out_key
+
+
+def _invoke_ai_analyzer(document_id: str, normalized: dict[str, Any], out_key: str, file_hash: str) -> None:
+    lambda_client.invoke(
+        FunctionName=AI_ANALYZER_NAME,
+        InvocationType="Event",
+        Payload=json.dumps(
+            {
+                "document_id": document_id,
+                "normalized_data": normalized,
+                "extracted_s3_key": out_key,
+                "file_hash": file_hash,
+            },
+            default=_json_default,
+        ).encode("utf-8"),
+    )
+
+
+def _invoke_ai_analyzer_error(document_id: str, source_key: str, file_hash: str, message: str) -> None:
+    lambda_client.invoke(
+        FunctionName=AI_ANALYZER_NAME,
+        InvocationType="Event",
+        Payload=json.dumps(
+            {
+                "document_id": document_id,
+                "normalized_data": {"document_id": document_id, "source_s3_key": source_key, "records": []},
+                "extracted_s3_key": "",
+                "file_hash": file_hash,
+                "processing_error": message,
+            }
+        ).encode("utf-8"),
+    )
 
 def _extract_csv_records(raw: bytes) -> list[dict[str, Any]]:
     text = raw.decode("utf-8")

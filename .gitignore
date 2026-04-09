@@ -8,6 +8,7 @@ terraform/*.tfstate.*
 *.tfstate
 *.tfstate.*
 terraform/build/
+!terraform/build/.gitkeep
 *.tfplan
 crash.log
 

@@ -45,47 +45,58 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     normalized = payload.get("normalized_data") or {}
     extracted_key = payload.get("extracted_s3_key", "")
     file_hash = payload.get("file_hash", "")
+    processing_error = payload.get("processing_error")
 
-    instruction = (
-        "You are a government budget analyst reviewing structured budget data. "
-        "The input is structured JSON representing budget data with fields like department, category, and amount "
-        '(e.g., {"department": "Transportation", "category": "Consulting", "amount": 900000}).\n\n'
-        "Detect the following anomalies:\n"
-        "- Fraud: duplicate payments, suspicious repeated vendors, inconsistent amounts.\n"
-        "- Waste: overspending relative to other categories, unusually high travel or consulting spending.\n"
-        "- Abuse: spending outside approved category, spending unrelated to department purpose.\n\n"
-        "Determine a severity level (low, medium, high) for each anomaly found.\n\n"
-        "Return ONLY valid JSON (no markdown fences) with exactly this deterministic format:\n"
-        "{\n"
-        '  "document_id": string,\n'
-        '  "alert_summary": { "fraud": number, "waste": number, "abuse": number },\n'
-        '  "anomaly_details": [ { "type": "Fraud|Waste|Abuse", "severity": "low|medium|high", "description": "string" } ],\n'
-        '  "human_readable_summary": "string"\n'
-        "}\n"
-        "Counts in alert_summary are how many distinct issues you found in each category.\n\n"
-        "DATA:\n"
-        f"{json.dumps(normalized, default=str)[:95000]}"
-    )
-
-    report: dict[str, Any] = {}
-    try:
-        br = bedrock_runtime.converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": instruction}]}],
-            inferenceConfig={"maxTokens": 4096, "temperature": 0},
-        )
-        text_out = _extract_converse_text(br)
-        report = _parse_model_json(text_out, document_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Bedrock failed: %s", exc)
+    if processing_error:
         report = {
             "document_id": document_id,
             "alert_summary": {"fraud": 0, "waste": 0, "abuse": 0},
             "anomaly_details": [
-                {"type": "Error", "severity": "high", "description": f"Analysis failed: {exc!s}"},
+                {"type": "Error", "severity": "high", "description": str(processing_error)},
             ],
-            "human_readable_summary": "Automated analysis could not be completed.",
+            "human_readable_summary": "Document processing could not be completed.",
         }
+    else:
+        instruction = (
+            "You are a government budget analyst reviewing structured budget data. "
+            "The input is structured JSON representing budget data with fields like department, category, and amount "
+            '(e.g., {"department": "Transportation", "category": "Consulting", "amount": 900000}).\n\n'
+            "Detect the following anomalies:\n"
+            "- Fraud: duplicate payments, suspicious repeated vendors, inconsistent amounts.\n"
+            "- Waste: overspending relative to other categories, unusually high travel or consulting spending.\n"
+            "- Abuse: spending outside approved category, spending unrelated to department purpose.\n\n"
+            "Determine a severity level (low, medium, high) for each anomaly found.\n\n"
+            "Return ONLY valid JSON (no markdown fences) with exactly this deterministic format:\n"
+            "{\n"
+            '  "document_id": string,\n'
+            '  "alert_summary": { "fraud": number, "waste": number, "abuse": number },\n'
+            '  "anomaly_details": [ { "type": "Fraud|Waste|Abuse", "severity": "low|medium|high", "description": "string" } ],\n'
+            '  "human_readable_summary": "string"\n'
+            "}\n"
+            "Counts in alert_summary are how many distinct issues you found in each category.\n\n"
+            "DATA:\n"
+            f"{json.dumps(normalized, default=str)[:95000]}"
+        )
+
+        report: dict[str, Any] = {}
+        try:
+            br = bedrock_runtime.converse(
+                modelId=BEDROCK_MODEL_ID,
+                messages=[{"role": "user", "content": [{"text": instruction}]}],
+                inferenceConfig={"maxTokens": 4096, "temperature": 0},
+            )
+            text_out = _extract_converse_text(br)
+            report = _parse_model_json(text_out, document_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Bedrock failed: %s", exc)
+            report = {
+                "document_id": document_id,
+                "alert_summary": {"fraud": 0, "waste": 0, "abuse": 0},
+                "anomaly_details": [
+                    {"type": "Error", "severity": "high", "description": f"Analysis failed: {exc!s}"},
+                ],
+                "human_readable_summary": "Automated analysis could not be completed.",
+            }
 
     report.setdefault("document_id", document_id)
     report.setdefault("alert_summary", {"fraud": 0, "waste": 0, "abuse": 0})
