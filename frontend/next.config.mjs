@@ -4,7 +4,7 @@ const nextConfig = {
     return [
       {
         source: '/api/aws/:path*',
-        destination: 'https://sx5mv8iz9d.execute-api.us-east-1.amazonaws.com/prod/:path*',
+        destination: 'https://l6aogiqmxg.execute-api.us-east-1.amazonaws.com/prod/:path*',
       },
     ];
   },

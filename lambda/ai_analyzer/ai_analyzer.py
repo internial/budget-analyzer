@@ -14,10 +14,6 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.core.lambda_launcher import patch_all
-
-patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -31,7 +27,6 @@ BEDROCK_MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 table = dynamodb.Table(TABLE_NAME)
 
 
-@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # --- API Gateway: fetch prior result ---
     if event.get("httpMethod") == "GET":
@@ -72,25 +67,14 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         f"{json.dumps(normalized, default=str)[:95000]}"
     )
 
-    body = json.dumps(
-        {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": instruction}]}],
-        }
-    )
-
     report: dict[str, Any] = {}
     try:
-        br = bedrock_runtime.invoke_model(
+        br = bedrock_runtime.converse(
             modelId=BEDROCK_MODEL_ID,
-            body=body.encode(),
-            contentType="application/json",
-            accept="application/json",
+            messages=[{"role": "user", "content": [{"text": instruction}]}],
+            inferenceConfig={"maxTokens": 4096, "temperature": 0},
         )
-        raw = br["body"].read()
-        parsed = json.loads(raw)
-        text_out = _extract_bedrock_text(parsed)
+        text_out = _extract_converse_text(br)
         report = _parse_model_json(text_out, document_id)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Bedrock failed: %s", exc)
@@ -140,11 +124,14 @@ def _alert_summary_for_dynamo(summary: Any) -> dict[str, Any]:
     return out
 
 
-def _extract_bedrock_text(parsed: dict[str, Any]) -> str:
-    for block in parsed.get("content") or []:
+def _extract_converse_text(response: dict[str, Any]) -> str:
+    content = ((response.get("output") or {}).get("message") or {}).get("content") or []
+    for block in content:
         if isinstance(block, dict) and block.get("type") == "text":
             return block.get("text", "") or ""
-    return json.dumps(parsed)
+        if isinstance(block, dict) and "text" in block:
+            return block.get("text", "") or ""
+    return json.dumps(response)
 
 
 def _parse_model_json(text: str, document_id: str) -> dict[str, Any]:

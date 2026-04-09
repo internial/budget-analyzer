@@ -1,98 +1,174 @@
-name: Deploy Fraud, Waste, and Abuse Budget Analyzer
+name: Deploy
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
   AWS_REGION: us-east-1
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  TF_IN_AUTOMATION: "true"
 
 jobs:
-  deploy:
+  plan:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: terraform
+
     steps:
-      # Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Setup Terraform environment
+      - name: Select AWS auth mode
+        id: auth
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -n "$AWS_ROLE_TO_ASSUME" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "mode=keys" >> "$GITHUB_OUTPUT"
+          else
+            echo "No AWS credentials configured. Set repository variable AWS_ROLE_TO_ASSUME for OIDC or AWS access key secrets." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials with OIDC
+        if: steps.auth.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials with access keys
+        if: steps.auth.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      # Initialize Terraform (required before fmt/validate/plan)
       - name: Initialize Terraform
-        working-directory: terraform
         run: terraform init
 
-      # Run terraform fmt to check syntax and standard formatting
-      - name: Run terraform fmt
-        working-directory: terraform
+      - name: Check Terraform formatting
         run: terraform fmt -check
 
-      # Run terraform validate to ensure configurations are valid
-      - name: Run terraform validate
-        working-directory: terraform
+      - name: Validate Terraform
         run: terraform validate
 
-      # Run terraform plan to preview infrastructure changes
-      - name: Run terraform plan
-        working-directory: terraform
+      - name: Create Terraform plan
         run: terraform plan -out=tfplan
 
-      # Run terraform apply to automatically provision tracked resources
-      - name: Run terraform apply
+      - name: Render Terraform plan
+        run: terraform show -no-color tfplan > tfplan.txt
+
+      - name: Add plan summary
+        run: |
+          {
+            echo "## Terraform Plan"
+            echo
+            echo '```'
+            sed -n '1,200p' tfplan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Terraform plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: |
+            terraform/tfplan
+            terraform/tfplan.txt
+          retention-days: 7
+
+  apply:
+    runs-on: ubuntu-latest
+    needs: plan
+    environment:
+      name: production
+
+    defaults:
+      run:
         working-directory: terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select AWS auth mode
+        id: auth
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -n "$AWS_ROLE_TO_ASSUME" ]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "mode=keys" >> "$GITHUB_OUTPUT"
+          else
+            echo "No AWS credentials configured. Set repository variable AWS_ROLE_TO_ASSUME for OIDC or AWS access key secrets." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials with OIDC
+        if: steps.auth.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials with access keys
+        if: steps.auth.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Initialize Terraform
+        run: terraform init
+
+      - name: Download Terraform plan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform
+
+      - name: Apply Terraform plan
         run: terraform apply -auto-approve tfplan
 
-      # Package Lambda functions locally into ZIP files
-      - name: Package Lambda functions
-        run: |
-          # Package upload_handler
-          mkdir -p upload_handler_package/python
-          pip install aws_xray_sdk -t upload_handler_package/python/lib/python3.11/site-packages
-          cp lambda/upload_handler/upload_handler.py upload_handler_package/
-          cd upload_handler_package && zip -r ../upload_handler.zip . && cd ..
+      - name: Read deployed API endpoint
+        id: api
+        run: echo "api_url=$(terraform output -raw api_gateway_endpoint)" >> "$GITHUB_OUTPUT"
 
-          # Package document_processor
-          mkdir -p document_processor_package/python
-          pip install aws_xray_sdk -t document_processor_package/python/lib/python3.11/site-packages
-          cp lambda/document_processor/document_processor.py document_processor_package/
-          cd document_processor_package && zip -r ../document_processor.zip . && cd ..
-
-          # Package ai_analyzer
-          mkdir -p ai_analyzer_package/python
-          pip install aws_xray_sdk -t ai_analyzer_package/python/lib/python3.11/site-packages
-          cp lambda/ai_analyzer/ai_analyzer.py ai_analyzer_package/
-          cd ai_analyzer_package && zip -r ../ai_analyzer.zip . && cd ..
-
-          # Package textract_callback_handler
-          mkdir -p textract_callback_handler_package/python
-          pip install aws_xray_sdk -t textract_callback_handler_package/python/lib/python3.11/site-packages
-          cp lambda/textract_callback_handler/textract_callback_handler.py textract_callback_handler_package/
-          cd textract_callback_handler_package && zip -r ../textract_callback_handler.zip . && cd ..
-
-      # Deploy Lambda code explicitly using the AWS CLI
-      - name: Deploy Lambda code
-        run: |
-          aws lambda update-function-code --function-name upload_handler --zip-file fileb://upload_handler.zip
-          aws lambda update-function-code --function-name document_processor --zip-file fileb://document_processor.zip
-          aws lambda update-function-code --function-name ai_analyzer --zip-file fileb://ai_analyzer.zip
-          aws lambda update-function-code --function-name textract_callback_handler --zip-file fileb://textract_callback_handler.zip
-          
-          # Wait for function code updates to finalize
-          sleep 10
-
-      # Run a test invocation to ensure lambda execution is functioning
-      - name: Run a test invocation
-        run: |
-          aws lambda invoke \
-            --function-name ai_analyzer \
-            --cli-binary-format raw-in-base64-out \
-            --payload '{"httpMethod": "GET", "queryStringParameters": {"documentId": "test-health-check"}}' \
-            response.json
-          
-          cat response.json
+      - name: Smoke-test deployed API
+        working-directory: .
+        env:
+          API_URL: ${{ steps.api.outputs.api_url }}
+        run: python3 test_analyzer.py

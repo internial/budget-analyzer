@@ -6,10 +6,6 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.core.lambda_launcher import patch_all
-
-patch_all()
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -21,7 +17,6 @@ lambda_client = boto3.client("lambda")
 AI_ANALYZER_NAME = os.environ["AI_ANALYZER_NAME"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"] # This will be needed to fetch the original document if necessary.
 
-@xray_recorder.capture('lambda_handler')
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     logger.info("Received event: %s", json.dumps(event))
 
@@ -45,7 +40,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             if job_status == "SUCCEEDED":
                 # Retrieve Textract results
-                full_text = ""
+                all_lines = []
                 table_records = []
 
                 # Get file_hash from S3 object metadata
@@ -67,11 +62,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
                     blocks = response.get("Blocks", [])
                     
-                    # Extract full text
                     for block in blocks:
-                        if block["BlockType"] == "PAGE":
-                            # For full text, we might want to iterate through lines and words
-                            pass
+                        if block.get("BlockType") == "LINE" and "Text" in block:
+                            all_lines.append(block["Text"])
                         
                     # Extract table records
                     table_records.extend(_records_from_table_blocks(blocks))
@@ -82,12 +75,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
                 # Fallback to lines if no tables found, or combine
                 if not table_records:
-                    lines = [
-                        b["Text"]
-                        for b in blocks
-                        if b.get("BlockType") == "LINE" and "Text" in b
-                    ]
-                    table_records = _records_from_text_lines(lines)
+                    table_records = _records_from_text_lines(all_lines)
 
 
                 document_id, _ = _parse_upload_key(key)
@@ -120,7 +108,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 )
 
             else:
-                logger.error("Textract job %s failed with status: %s", job_id, job_status)
+                logger.error("TEXTRACT_FAILURE job %s failed with status: %s", job_id, job_status)
 
     return {"statusCode": 200, "body": json.dumps({"ok": True})}
 

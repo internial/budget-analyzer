@@ -529,6 +529,16 @@ resource "aws_iam_role_policy" "upload_handler" {
         ]
       },
       {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query"
+        ]
+        Resource = [
+          aws_dynamodb_table.results.arn,
+          "${aws_dynamodb_table.results.arn}/index/file_hash-index"
+        ]
+      },
+      {
         Effect   = "Allow"
         Action   = ["sqs:SendMessage"]
         Resource = aws_sqs_queue.budget_analyzer_dlq.arn
@@ -717,14 +727,25 @@ resource "aws_iam_role_policy" "textract_callback_handler" {
       {
         Effect = "Allow"
         Action = [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "s3:GetObject",
           "s3:PutObject"
         ]
-        Resource = "${aws_s3_bucket.uploads.arn}/extracted/*"
+        Resource = [
+          "${aws_s3_bucket.uploads.arn}/uploads/*",
+          "${aws_s3_bucket.uploads.arn}/extracted/*"
+        ]
       },
       {
         Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
         Resource = aws_lambda_function.ai_analyzer.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.budget_analyzer_dlq.arn
       }
     ]
   })
@@ -846,7 +867,7 @@ resource "aws_lambda_function" "textract_callback_handler" {
   function_name = "textract_callback_handler"
   role          = aws_iam_role.textract_callback_handler.arn
   runtime       = "python3.11"
-  handler       = "textract_callback_handler.textract_callback_handler.lambda_handler"
+  handler       = "textract_callback_handler.lambda_handler"
   timeout       = 120
   memory_size   = 512
 
@@ -858,6 +879,14 @@ resource "aws_lambda_function" "textract_callback_handler" {
       AI_ANALYZER_NAME = aws_lambda_function.ai_analyzer.function_name
       UPLOAD_BUCKET    = aws_s3_bucket.uploads.bucket
     }
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.budget_analyzer_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   depends_on = [aws_cloudwatch_log_group.textract_callback_handler]
@@ -910,13 +939,6 @@ resource "aws_s3_bucket_notification" "uploads_triggers_processor" {
   }
 
   depends_on = [aws_lambda_permission.s3_invoke_document_processor]
-}
-
-resource "aws_lambda_permission" "ai_analyzer_from_document_processor" {
-  statement_id  = "AllowInvokeFromDocumentProcessorRole"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ai_analyzer.function_name
-  principal     = aws_iam_role.document_processor.arn
 }
 
 resource "aws_lambda_permission" "sns_invoke_textract_callback_handler" {
@@ -1060,7 +1082,7 @@ resource "aws_api_gateway_method_settings" "prod_throttling" {
 
 resource "aws_cloudwatch_log_metric_filter" "textract_failures" {
   name           = "${var.project_name}-textract-failure-filter"
-  log_group_name = aws_cloudwatch_log_group.document_processor.name
+  log_group_name = aws_cloudwatch_log_group.textract_callback_handler.name
   pattern        = "TEXTRACT_FAILURE"
 
   metric_transformation {
@@ -1084,6 +1106,8 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors_upload_handler" {
   dimensions = {
     FunctionName = aws_lambda_function.upload_handler.function_name
   }
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors_document_processor" {
@@ -1100,6 +1124,8 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors_document_processor" {
   dimensions = {
     FunctionName = aws_lambda_function.document_processor.function_name
   }
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors_ai_analyzer" {
@@ -1116,6 +1142,26 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors_ai_analyzer" {
   dimensions = {
     FunctionName = aws_lambda_function.ai_analyzer.function_name
   }
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_errors_textract_callback_handler" {
+  alarm_name          = "${var.project_name}-textract-callback-handler-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.textract_callback_handler.function_name
+  }
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "textract_failure_indicator" {
@@ -1128,6 +1174,8 @@ resource "aws_cloudwatch_metric_alarm" "textract_failure_indicator" {
   statistic           = "Sum"
   threshold           = 0
   treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "dynamodb_throttling" {
@@ -1144,6 +1192,8 @@ resource "aws_cloudwatch_metric_alarm" "dynamodb_throttling" {
   dimensions = {
     TableName = aws_dynamodb_table.results.name
   }
+
+  alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
 
 ############################

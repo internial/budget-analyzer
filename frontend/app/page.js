@@ -60,7 +60,7 @@ export default function Home() {
               animation: 'spin 1s linear infinite'
             }}></div>
             <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <h3 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem 0' }}>Analyzing "{fileName}"...</h3>
+            <h3 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem 0' }}>Analyzing &quot;{fileName}&quot;...</h3>
             <p style={{ color: 'var(--text-muted)' }}>The AI is currently structuring the payload and detecting anomalies.</p>
           </div>
         )}

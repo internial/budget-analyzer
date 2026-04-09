@@ -27,7 +27,7 @@ variable "s3_bucket_name" {
 variable "bedrock_model_id" {
   description = "Bedrock foundation model ID for analysis (must be enabled in the account/region)."
   type        = string
-  default     = "anthropic.claude-3-haiku-20240307-v1:0"
+  default     = "amazon.nova-lite-v1:0"
 }
 
 variable "budget_limit_usd" {

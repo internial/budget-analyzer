@@ -1,11 +1,13 @@
 import json
 import base64
+import os
 import time
 import urllib.request
 import urllib.error
 
-# The live API Gateway URL we just deployed!
-API_URL = "https://kl4vcw3lh0.execute-api.us-east-1.amazonaws.com/prod"
+API_URL = os.environ.get("API_URL")
+if not API_URL:
+    raise SystemExit("Set API_URL to the deployed API Gateway invoke URL before running this smoke test.")
 
 # Let's create a dummy CSV completely full of Fraud, Waste, and Abuse!
 csv_content = """department,category,amount,vendor

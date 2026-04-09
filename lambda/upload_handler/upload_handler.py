@@ -15,10 +15,6 @@ from typing import Any
 
 import boto3
 import hashlib
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.core.lambda_launcher import patch_all
-
-patch_all()
 
 dynamodb = boto3.client("dynamodb")
 s3 = boto3.client("s3")
@@ -50,17 +46,24 @@ def _get_results_by_hash(file_hash: str) -> dict[str, Any] | None:
         )
         if response["Items"]:
             item = response["Items"][0]
+            extracted_key = _dynamo_string(item, "document_name") or _dynamo_string(item, "s3_key")
             return {
-                "document_id": item["document_id"]["S"],
-                "s3_key": item["s3_key"]["S"],
-                "file_hash": item["file_hash"]["S"]
+                "document_id": _dynamo_string(item, "document_id"),
+                "s3_key": extracted_key,
+                "file_hash": _dynamo_string(item, "file_hash"),
             }
-    except Exception as e:
-        print(f"Error querying DynamoDB for file_hash {file_hash}: {e}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error querying DynamoDB for file_hash {file_hash}: {exc}")
     return None
 
 
-@xray_recorder.capture('lambda_handler')
+def _dynamo_string(item: dict[str, Any], key: str) -> str:
+    value = item.get(key, {})
+    if isinstance(value, dict):
+        return value.get("S", "")
+    return ""
+
+
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if event.get("httpMethod") not in (None, "POST"):
         return _response(405, {"message": "Method not allowed"})
@@ -82,8 +85,16 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     file_hash = hashlib.sha256(raw).hexdigest()
 
     existing_results = _get_results_by_hash(file_hash)
-    if existing_results:
-        return _response(200, {"message": "Duplicate file, returning cached results.", "document_id": existing_results["document_id"], "s3_key": existing_results["s3_key"], "file_hash": file_hash})
+    if existing_results and existing_results["document_id"]:
+        return _response(
+            200,
+            {
+                "message": "Duplicate file, returning cached results.",
+                "document_id": existing_results["document_id"],
+                "s3_key": existing_results["s3_key"],
+                "file_hash": file_hash,
+            },
+        )
     if len(raw) > MAX_BYTES:
         return _response(400, {"message": f"File too large. Maximum size is {MAX_FILE_SIZE_MB} MB."})
 
