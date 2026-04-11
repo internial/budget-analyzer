@@ -34,19 +34,19 @@ export default function Uploader({ onUploadStart, onUploadComplete, onError }) {
   };
 
   const handleFile = async (file) => {
-    // Only accept csv or pdf
     if (!file.name.endsWith('.csv') && !file.name.endsWith('.pdf')) {
       onError("Please upload a .csv or .pdf file.");
       return;
     }
-    
+
     onUploadStart(file.name);
-    
+
     try {
       const { uploadBudgetFile, pollForResults } = await import('../lib/api');
-      const docId = await uploadBudgetFile(file);
-      const results = await pollForResults(docId);
-      onUploadComplete(results);
+      const { documentId, isDuplicate } = await uploadBudgetFile(file);
+      if (isDuplicate) onUploadStart(file.name, true); // signal duplicate to show correct spinner text
+      const results = await pollForResults(documentId);
+      onUploadComplete(results, isDuplicate);
     } catch (err) {
       onError(err.message || "Something went wrong during analysis.");
     }

@@ -1,6 +1,6 @@
 import styles from './Dashboard.module.css';
 
-export default function Dashboard({ results, onReset }) {
+export default function Dashboard({ results, isDuplicate, onReset }) {
   const { alert_summary, human_readable_summary, anomaly_details } = results;
 
   const getSeverityClass = (sev) => {
@@ -15,6 +15,22 @@ export default function Dashboard({ results, onReset }) {
         <h2>Analysis Complete</h2>
         <button className={styles.resetBtn} onClick={onReset}>Analyze Another</button>
       </div>
+
+      {isDuplicate && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          background: 'rgba(234,179,8,0.1)', border: '1px solid #ca8a04',
+          color: '#92400e', padding: '0.875rem 1.25rem', borderRadius: '8px',
+          marginBottom: '1.5rem', fontSize: '0.95rem'
+        }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>
+            <strong>Duplicate file detected.</strong> This file was previously analyzed — showing cached results. No AI credits were used.
+          </span>
+        </div>
+      )}
 
       <div className={styles.summaryGrid}>
         <div className={styles.metricCard}>

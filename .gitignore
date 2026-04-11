@@ -7,8 +7,8 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 *.tfstate
 *.tfstate.*
-terraform/build/
-!terraform/build/.gitkeep
+# terraform/build/ is intentionally not ignored so the directory is tracked
+terraform/build/*.zip
 *.tfplan
 crash.log
 

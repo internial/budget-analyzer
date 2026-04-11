@@ -72,8 +72,11 @@ jobs:
       - name: Check Terraform formatting
         run: terraform fmt -check
 
-      - name: Create build directory for archive_file data sources
-        run: mkdir -p build
+      - name: Create build directory and pypdf layer
+        run: |
+          mkdir -p build/pypdf_layer/python
+          pip3 install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
+          cd build/pypdf_layer && zip -r ../pypdf_layer.zip python/ -q
 
       - name: Validate Terraform
         run: terraform validate

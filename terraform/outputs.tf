@@ -52,21 +52,11 @@ output "sns_budget_topic_arn" {
 }
 
 output "cloudtrail_name" {
-  description = "Multi-region CloudTrail delivering to the dedicated audit bucket."
+  description = "CloudTrail delivering to the dedicated audit bucket."
   value       = aws_cloudtrail.audit.name
 }
 
-output "frontend_bucket_name" {
-  description = "S3 bucket hosting the Next.js static export."
-  value       = aws_s3_bucket.frontend.bucket
-}
-
-output "frontend_url" {
-  description = "CloudFront URL for the frontend website."
-  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
-}
-
-output "cloudfront_distribution_id" {
-  description = "CloudFront distribution ID (used for cache invalidation)."
-  value       = aws_cloudfront_distribution.frontend.id
+output "cloudwatch_dashboard_url" {
+  description = "Direct URL to the CloudWatch monitoring dashboard."
+  value       = "https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
 }

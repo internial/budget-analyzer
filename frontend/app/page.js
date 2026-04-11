@@ -9,14 +9,17 @@ export default function Home() {
   const [fileName, setFileName] = useState('');
   const [results, setResults] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [isDuplicate, setIsDuplicate] = useState(false);
 
-  const startUpload = (name) => {
+  const startUpload = (name, duplicate = false) => {
     setFileName(name);
+    setIsDuplicate(duplicate);
     setAppState('processing');
     setErrorMsg(null);
   };
 
-  const uploadComplete = (data) => {
+  const uploadComplete = (data, duplicate = false) => {
+    setIsDuplicate(duplicate);
     setResults(data);
     setAppState('results');
   };
@@ -44,29 +47,38 @@ export default function Home() {
 
         {appState === 'upload' && (
           <div className="animate-slide-up">
-            <Uploader 
-              onUploadStart={startUpload} 
-              onUploadComplete={uploadComplete} 
-              onError={uploadError} 
+            <Uploader
+              onUploadStart={startUpload}
+              onUploadComplete={uploadComplete}
+              onError={uploadError}
             />
           </div>
         )}
 
         {appState === 'processing' && (
           <div className="glass-panel" style={{ padding: '4rem 2rem', textAlign: 'center' }}>
-            <div className="spinner" style={{ 
-              width: '50px', height: '50px', border: '3px solid rgba(0,0,0,0.1)', 
+            <div className="spinner" style={{
+              width: '50px', height: '50px', border: '3px solid rgba(0,0,0,0.1)',
               borderTopColor: '#3b82f6', borderRadius: '50%', margin: '0 auto 2rem auto',
               animation: 'spin 1s linear infinite'
             }}></div>
             <style jsx>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <h3 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem 0' }}>Analyzing &quot;{fileName}&quot;...</h3>
-            <p style={{ color: 'var(--text-muted)' }}>The AI is currently structuring the payload and detecting anomalies.</p>
+            {isDuplicate ? (
+              <>
+                <h3 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem 0' }}>Duplicate file detected — &quot;{fileName}&quot;</h3>
+                <p style={{ color: 'var(--text-muted)' }}>This file has already been analyzed. Loading your previous results...</p>
+              </>
+            ) : (
+              <>
+                <h3 style={{ fontSize: '1.5rem', margin: '0 0 0.5rem 0' }}>Analyzing &quot;{fileName}&quot;...</h3>
+                <p style={{ color: 'var(--text-muted)' }}>The AI is currently structuring the payload and detecting anomalies.</p>
+              </>
+            )}
           </div>
         )}
 
         {appState === 'results' && results && (
-          <Dashboard results={results} onReset={() => setAppState('upload')} />
+          <Dashboard results={results} isDuplicate={isDuplicate} onReset={() => { setAppState('upload'); setIsDuplicate(false); }} />
         )}
       </div>
     </main>

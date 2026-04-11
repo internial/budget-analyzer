@@ -122,6 +122,19 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     s3.put_object(Bucket=UPLOAD_BUCKET, Key=key, Body=raw, Metadata={"file_hash": file_hash}, **extra)
 
+    # Store a pending record immediately so duplicate detection works before analysis completes
+    dynamodb.put_item(
+        TableName=DYNAMODB_TABLE_NAME,
+        Item={
+            "document_id": {"S": document_id},
+            "file_hash": {"S": file_hash},
+            "document_name": {"S": key},
+            "upload_date": {"S": __import__("datetime").datetime.utcnow().isoformat()},
+            "status": {"S": "pending"},
+        },
+        ConditionExpression="attribute_not_exists(document_id)",
+    )
+
     return _response(
         202,
         {

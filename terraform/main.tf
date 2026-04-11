@@ -1,7 +1,7 @@
 # Infrastructure for the Fraud, Waste, and Abuse Budget Analyzer.
 #
 # Request path: POST /upload -> upload_handler -> S3 uploads/
-# S3 event -> document_processor (Textract/CSV) -> extracted/*.json -> ai_analyzer (Bedrock + DynamoDB).
+# S3 event -> document_processor (pypdf/CSV) -> extracted/*.json -> ai_analyzer (Bedrock + DynamoDB).
 # GET /results reads DynamoDB.
 #
 # Also includes: S3 replication, CloudTrail, CloudWatch alarms, SNS + monthly budget.
@@ -38,28 +38,6 @@ locals {
 
 resource "aws_sns_topic" "budget_alerts" {
   name = "${var.project_name}-budget-alerts"
-}
-
-resource "aws_sns_topic" "textract_notifications" {
-  name = "${var.project_name}-textract-notifications"
-}
-
-resource "aws_sns_topic_policy" "textract_notifications" {
-  arn = aws_sns_topic.textract_notifications.arn
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "textract.amazonaws.com"
-        }
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.textract_notifications.arn
-      }
-    ]
-  })
 }
 
 resource "aws_sns_topic_policy" "budget_alerts" {
@@ -383,8 +361,8 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 resource "aws_cloudtrail" "audit" {
   name                          = "${var.project_name}-audit-trail"
   s3_bucket_name                = aws_s3_bucket.cloudtrail.id
-  include_global_service_events = true
-  is_multi_region_trail         = true
+  include_global_service_events = false
+  is_multi_region_trail         = false
   enable_logging                = true
 
   depends_on = [aws_s3_bucket_policy.cloudtrail]
@@ -452,37 +430,6 @@ resource "aws_cloudwatch_metric_alarm" "budget_analyzer_dlq_alarm" {
 # IAM — Lambda roles (least privilege)
 ############################
 
-resource "aws_iam_role" "textract_service_role" {
-  name = "${var.project_name}-textract-service-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "textract.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "textract_service_role" {
-  name = "${var.project_name}-textract-service-role-policy"
-  role = aws_iam_role.textract_service_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.textract_notifications.arn
-      }
-    ]
-  })
-}
-
 resource "aws_iam_role" "upload_handler" {
   name = "${var.project_name}-upload-handler"
 
@@ -531,7 +478,8 @@ resource "aws_iam_role_policy" "upload_handler" {
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:Query"
+          "dynamodb:Query",
+          "dynamodb:PutItem"
         ]
         Resource = [
           aws_dynamodb_table.results.arn,
@@ -584,6 +532,7 @@ resource "aws_iam_role_policy" "document_processor" {
         Action = [
           "s3:GetObject",
           "s3:GetObjectVersion",
+          "s3:HeadObject",
           "s3:PutObject"
         ]
         Resource = "${aws_s3_bucket.uploads.arn}/*"
@@ -594,21 +543,6 @@ resource "aws_iam_role_policy" "document_processor" {
           "s3:ListBucket"
         ]
         Resource = aws_s3_bucket.uploads.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "textract:DetectDocumentText",
-          "textract:AnalyzeDocument",
-          "textract:StartDocumentAnalysis",
-          "textract:GetDocumentAnalysis"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = "iam:PassRole"
-        Resource = aws_iam_role.textract_service_role.arn
       },
       {
         Effect   = "Allow"
@@ -626,21 +560,6 @@ resource "aws_iam_role_policy" "document_processor" {
 
 resource "aws_iam_role" "ai_analyzer" {
   name = "${var.project_name}-ai-analyzer"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role" "textract_callback_handler" {
-  name = "${var.project_name}-textract-callback-handler"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -701,56 +620,6 @@ resource "aws_iam_role_policy" "ai_analyzer" {
   })
 }
 
-resource "aws_iam_role_policy" "textract_callback_handler" {
-  name = "${var.project_name}-textract-callback-handler"
-  role = aws_iam_role.textract_callback_handler.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "${aws_cloudwatch_log_group.textract_callback_handler.arn}:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "textract:GetDocumentAnalysis",
-          "textract:GetDocumentTextDetection"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "xray:PutTraceSegments",
-          "xray:PutTelemetryRecords",
-          "s3:GetObject",
-          "s3:PutObject"
-        ]
-        Resource = [
-          "${aws_s3_bucket.uploads.arn}/uploads/*",
-          "${aws_s3_bucket.uploads.arn}/extracted/*"
-        ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["lambda:InvokeFunction"]
-        Resource = aws_lambda_function.ai_analyzer.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["sqs:SendMessage"]
-        Resource = aws_sqs_queue.budget_analyzer_dlq.arn
-      }
-    ]
-  })
-}
-
 ############################
 # CloudWatch log groups (Lambda)
 ############################
@@ -767,11 +636,6 @@ resource "aws_cloudwatch_log_group" "document_processor" {
 
 resource "aws_cloudwatch_log_group" "ai_analyzer" {
   name              = "/aws/lambda/ai_analyzer"
-  retention_in_days = var.lambda_log_retention_days
-}
-
-resource "aws_cloudwatch_log_group" "textract_callback_handler" {
-  name              = "/aws/lambda/textract_callback_handler"
   retention_in_days = var.lambda_log_retention_days
 }
 
@@ -797,10 +661,13 @@ data "archive_file" "ai_analyzer" {
   output_path = "${path.module}/build/ai_analyzer.zip"
 }
 
-data "archive_file" "textract_callback_handler" {
-  type        = "zip"
-  source_dir  = "${path.module}/../lambda/textract_callback_handler"
-  output_path = "${path.module}/build/textract_callback_handler.zip"
+# pypdf Lambda layer — built during CI/CD
+resource "aws_lambda_layer_version" "pypdf" {
+  layer_name          = "pypdf"
+  filename            = "${path.module}/build/pypdf_layer.zip"
+  source_code_hash    = filebase64sha256("${path.module}/build/pypdf_layer.zip")
+  compatible_runtimes = ["python3.11"]
+  description         = "pypdf library for PDF text extraction"
 }
 
 resource "aws_lambda_function" "document_processor" {
@@ -813,13 +680,12 @@ resource "aws_lambda_function" "document_processor" {
 
   filename         = data.archive_file.document_processor.output_path
   source_code_hash = data.archive_file.document_processor.output_base64sha256
+  layers           = [aws_lambda_layer_version.pypdf.arn]
 
   environment {
     variables = {
-      UPLOAD_BUCKET             = aws_s3_bucket.uploads.bucket
-      AI_ANALYZER_NAME          = aws_lambda_function.ai_analyzer.function_name
-      TEXTRACT_SNS_TOPIC_ARN    = aws_sns_topic.textract_notifications.arn
-      TEXTRACT_SERVICE_ROLE_ARN = aws_iam_role.textract_service_role.arn
+      UPLOAD_BUCKET    = aws_s3_bucket.uploads.bucket
+      AI_ANALYZER_NAME = aws_lambda_function.ai_analyzer.function_name
     }
   }
 
@@ -861,35 +727,6 @@ resource "aws_lambda_function" "ai_analyzer" {
   }
 
   depends_on = [aws_cloudwatch_log_group.ai_analyzer]
-}
-
-resource "aws_lambda_function" "textract_callback_handler" {
-  function_name = "textract_callback_handler"
-  role          = aws_iam_role.textract_callback_handler.arn
-  runtime       = "python3.11"
-  handler       = "textract_callback_handler.lambda_handler"
-  timeout       = 120
-  memory_size   = 512
-
-  filename         = data.archive_file.textract_callback_handler.output_path
-  source_code_hash = data.archive_file.textract_callback_handler.output_base64sha256
-
-  environment {
-    variables = {
-      AI_ANALYZER_NAME = aws_lambda_function.ai_analyzer.function_name
-      UPLOAD_BUCKET    = aws_s3_bucket.uploads.bucket
-    }
-  }
-
-  dead_letter_config {
-    target_arn = aws_sqs_queue.budget_analyzer_dlq.arn
-  }
-
-  tracing_config {
-    mode = "Active"
-  }
-
-  depends_on = [aws_cloudwatch_log_group.textract_callback_handler]
 }
 
 resource "aws_lambda_function" "upload_handler" {
@@ -939,21 +776,6 @@ resource "aws_s3_bucket_notification" "uploads_triggers_processor" {
   }
 
   depends_on = [aws_lambda_permission.s3_invoke_document_processor]
-}
-
-resource "aws_lambda_permission" "sns_invoke_textract_callback_handler" {
-  statement_id  = "AllowSNSInvokeTextractCallbackHandler"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.textract_callback_handler.function_name
-  principal     = "sns.amazonaws.com"
-  source_arn    = aws_sns_topic.textract_notifications.arn
-}
-
-resource "aws_sns_topic_subscription" "textract_notifications_to_lambda" {
-  topic_arn  = aws_sns_topic.textract_notifications.arn
-  protocol   = "lambda"
-  endpoint   = aws_lambda_function.textract_callback_handler.arn
-  depends_on = [aws_lambda_permission.sns_invoke_textract_callback_handler]
 }
 
 ############################
@@ -1080,18 +902,6 @@ resource "aws_api_gateway_method_settings" "prod_throttling" {
 # CloudWatch — monitoring
 ############################
 
-resource "aws_cloudwatch_log_metric_filter" "textract_failures" {
-  name           = "${var.project_name}-textract-failure-filter"
-  log_group_name = aws_cloudwatch_log_group.textract_callback_handler.name
-  pattern        = "TEXTRACT_FAILURE"
-
-  metric_transformation {
-    name      = "TextractFailureCount"
-    namespace = "${var.project_name}/Textract"
-    value     = "1"
-  }
-}
-
 resource "aws_cloudwatch_metric_alarm" "lambda_errors_upload_handler" {
   alarm_name          = "${var.project_name}-upload-handler-errors"
   comparison_operator = "GreaterThanThreshold"
@@ -1142,38 +952,6 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors_ai_analyzer" {
   dimensions = {
     FunctionName = aws_lambda_function.ai_analyzer.function_name
   }
-
-  alarm_actions = [aws_sns_topic.budget_alerts.arn]
-}
-
-resource "aws_cloudwatch_metric_alarm" "lambda_errors_textract_callback_handler" {
-  alarm_name          = "${var.project_name}-textract-callback-handler-errors"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "Errors"
-  namespace           = "AWS/Lambda"
-  period              = 300
-  statistic           = "Sum"
-  threshold           = 0
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    FunctionName = aws_lambda_function.textract_callback_handler.function_name
-  }
-
-  alarm_actions = [aws_sns_topic.budget_alerts.arn]
-}
-
-resource "aws_cloudwatch_metric_alarm" "textract_failure_indicator" {
-  alarm_name          = "${var.project_name}-textract-failures"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 1
-  metric_name         = "TextractFailureCount"
-  namespace           = "${var.project_name}/Textract"
-  period              = 300
-  statistic           = "Sum"
-  threshold           = 0
-  treat_missing_data  = "notBreaching"
 
   alarm_actions = [aws_sns_topic.budget_alerts.arn]
 }
@@ -1243,161 +1021,10 @@ output "budget_analyzer_dlq_arn" {
 }
 
 ############################
-# Frontend — S3 + CloudFront
+# CloudWatch Dashboard
 ############################
 
-resource "aws_s3_bucket" "frontend" {
-  bucket = "${var.project_name}-frontend-${local.account_id}"
-  tags   = local.common_tags
-}
-
-resource "aws_s3_bucket_public_access_block" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_ownership_controls" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-  rule {
-    object_ownership = "BucketOwnerEnforced"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "${var.project_name}-frontend-oac"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
-resource "aws_cloudfront_distribution" "frontend" {
-  enabled             = true
-  default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  tags                = local.common_tags
-
-  # S3 origin for static assets
-  origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "s3-frontend"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
-  }
-
-  # API Gateway origin — proxies /api/aws/* to the backend
-  origin {
-    domain_name = replace(
-      replace(aws_api_gateway_stage.prod.invoke_url, "https://", ""),
-      "/prod",
-      ""
-    )
-    origin_id   = "apigw"
-    origin_path = "/prod"
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  # Default cache behaviour — serve the Next.js static export
-  default_cache_behavior {
-    target_origin_id       = "s3-frontend"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-
-    forwarded_values {
-      query_string = false
-      cookies { forward = "none" }
-    }
-
-    min_ttl     = 0
-    default_ttl = 3600
-    max_ttl     = 86400
-  }
-
-  # /api/aws/* — forward to API Gateway
-  ordered_cache_behavior {
-    path_pattern           = "/api/aws/*"
-    target_origin_id       = "apigw"
-    viewer_protocol_policy = "https-only"
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = false
-
-    forwarded_values {
-      query_string = true
-      headers      = ["Authorization", "Content-Type"]
-      cookies { forward = "none" }
-    }
-
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
-  }
-
-  # Return index.html for unknown paths (SPA-style routing)
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
-}
-
-resource "aws_s3_bucket_policy" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowCloudFrontOAC"
-      Effect = "Allow"
-      Principal = {
-        Service = "cloudfront.amazonaws.com"
-      }
-      Action   = "s3:GetObject"
-      Resource = "${aws_s3_bucket.frontend.arn}/*"
-      Condition = {
-        StringEquals = {
-          "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
-        }
-      }
-    }]
-  })
-
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
+resource "aws_cloudwatch_dashboard" "main" {
+  dashboard_name = "${var.project_name}-dashboard"
+  dashboard_body = file("${path.module}/../monitoring-dashboard.json")
 }

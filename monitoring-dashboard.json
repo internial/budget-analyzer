@@ -10,8 +10,7 @@
         "metrics": [
           ["AWS/Lambda", "Invocations", "FunctionName", "upload_handler"],
           ["AWS/Lambda", "Invocations", "FunctionName", "ai_analyzer"],
-          ["AWS/Lambda", "Invocations", "FunctionName", "document_processor"],
-          ["AWS/Lambda", "Invocations", "FunctionName", "textract_callback_handler"]
+          ["AWS/Lambda", "Invocations", "FunctionName", "document_processor"]
         ],
         "view": "timeSeries",
         "stacked": false,
@@ -30,8 +29,7 @@
         "metrics": [
           ["AWS/Lambda", "Errors", "FunctionName", "upload_handler"],
           ["AWS/Lambda", "Errors", "FunctionName", "ai_analyzer"],
-          ["AWS/Lambda", "Errors", "FunctionName", "document_processor"],
-          ["AWS/Lambda", "Errors", "FunctionName", "textract_callback_handler"]
+          ["AWS/Lambda", "Errors", "FunctionName", "document_processor"]
         ],
         "view": "timeSeries",
         "stacked": false,
@@ -107,7 +105,6 @@
           "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-ai-analyzer-errors",
           "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-document-processor-errors",
           "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-dlq-messages-visible-alarm",
-          "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-textract-failures",
           "arn:aws:cloudwatch:us-east-1:054041090724:alarm:budget-analyzer-dynamodb-throttled-requests"
         ],
         "title": "All Budget Analyzer Alarms"
@@ -123,8 +120,7 @@
         "logGroupNames": [
           "/aws/lambda/upload_handler",
           "/aws/lambda/ai_analyzer",
-          "/aws/lambda/document_processor",
-          "/aws/lambda/textract_callback_handler"
+          "/aws/lambda/document_processor"
         ],
         "view": "table",
         "title": "Recent Lambda Logs",
