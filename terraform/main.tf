@@ -707,7 +707,7 @@ resource "aws_lambda_function" "ai_analyzer" {
   role          = aws_iam_role.ai_analyzer.arn
   runtime       = "python3.11"
   handler       = "ai_analyzer.lambda_handler"
-  timeout       = 120
+  timeout       = 300
   memory_size   = 512
 
   filename         = data.archive_file.ai_analyzer.output_path

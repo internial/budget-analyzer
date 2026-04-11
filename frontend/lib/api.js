@@ -33,7 +33,7 @@ export async function uploadBudgetFile(file) {
   });
 }
 
-export async function pollForResults(documentId, maxAttempts = 40) {
+export async function pollForResults(documentId, maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${API_URL}/results?documentId=${documentId}`);
     if (res.ok) {
