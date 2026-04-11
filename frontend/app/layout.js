@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Gov't Fraud, Waste & Abuse Detector and Summarizer",
+  title: "Gov't Budget Auditor",
   description: "AI-powered detection of fraud, waste, and abuse in government budget documents.",
 };
 

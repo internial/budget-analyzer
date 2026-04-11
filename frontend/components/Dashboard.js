@@ -1,7 +1,7 @@
 import styles from './Dashboard.module.css';
 
 export default function Dashboard({ results, isDuplicate, onReset }) {
-  const { alert_summary, human_readable_summary, anomaly_details, document_summary, truncated } = results;
+  const { alert_summary, human_readable_summary, anomaly_details, document_summary, truncated, csv_sampled } = results;
 
   const getSeverityClass = (sev) => {
     if (sev === 'high') return styles.sevHigh;
@@ -15,6 +15,22 @@ export default function Dashboard({ results, isDuplicate, onReset }) {
         <h2>Analysis Complete</h2>
         <button className={styles.resetBtn} onClick={onReset}>Analyze Another</button>
       </div>
+
+      {csv_sampled && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          background: 'rgba(234,179,8,0.08)', border: '1px solid #ca8a04',
+          color: '#92400e', padding: '0.875rem 1.25rem', borderRadius: '8px',
+          marginBottom: '1.5rem', fontSize: '0.95rem'
+        }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span>
+            <strong>Large file — reviewed a sample of rows.</strong> This CSV had too many rows to fully read at once. The AI reviewed the first 300 rows, the last 300 rows, and ~400 rows from the middle. Rows outside this sample were not analyzed. To check everything, split the file into smaller parts and upload each one.
+          </span>
+        </div>
+      )}
 
       {truncated && (
         <div style={{

@@ -59,6 +59,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         else:
             report = _analyze(document_id, content, file_type, truncated)
         report["truncated"] = truncated
+        report["csv_sampled"] = extracted.get("csv_sampled", False)
 
     _save(document_id, extracted_key, file_hash, report)
     return {"statusCode": 200, "body": json.dumps({"document_id": document_id})}
@@ -203,6 +204,7 @@ def _save(document_id: str, extracted_key: str, file_hash: str, report: dict[str
         "upload_date": datetime.now(timezone.utc).isoformat(),
         "document_summary": report["document_summary"],
         "truncated": report.get("truncated", False),
+        "csv_sampled": report.get("csv_sampled", False),
         "alert_summary": {
             k: int(report["alert_summary"].get(k, 0))
             for k in ("fraud", "waste", "abuse")

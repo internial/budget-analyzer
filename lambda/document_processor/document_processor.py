@@ -58,8 +58,9 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
             if ext == ".pdf":
                 content, file_type = _extract_pdf(raw)
+                csv_sampled = False
             else:
-                content, file_type = _extract_csv(raw)
+                content, file_type, csv_sampled = _extract_csv(raw)
 
             payload = {
                 "document_id": document_id,
@@ -67,6 +68,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "file_type": file_type,
                 "content": content[:MAX_CONTENT_CHARS],
                 "truncated": len(content) > MAX_CONTENT_CHARS,
+                "csv_sampled": csv_sampled,
             }
             out_key = _write_extracted(bucket, document_id, payload)
             _invoke_ai_analyzer(document_id, payload, out_key, file_hash)
@@ -96,12 +98,12 @@ def _extract_pdf(raw: bytes) -> tuple[str, str]:
     return full_text, "pdf"
 
 
-def _extract_csv(raw: bytes) -> tuple[str, str]:
+def _extract_csv(raw: bytes) -> tuple[str, str, bool]:
     text = raw.decode("utf-8", errors="replace")
     lines = text.splitlines()
 
     if not lines:
-        return "", "csv"
+        return "", "csv", False
 
     header = lines[0]
     data_rows = lines[1:]
@@ -109,7 +111,7 @@ def _extract_csv(raw: bytes) -> tuple[str, str]:
 
     # If small enough, send everything
     if len(text) <= MAX_CONTENT_CHARS:
-        return text, "csv"
+        return text, "csv", False
 
     # Smart sampling: first 300, last 300, 400 random from middle
     first = data_rows[:300]
@@ -131,7 +133,7 @@ def _extract_csv(raw: bytes) -> tuple[str, str]:
         f"Flag patterns that appear across multiple rows as higher severity.\n\n"
     )
 
-    return note + sampled_text, "csv"
+    return note + sampled_text, "csv", True
 
 
 def _parse_upload_key(key: str) -> tuple[str, str]:
