@@ -85,37 +85,77 @@ def _analyze(document_id: str, content: str, file_type: str, truncated: bool) ->
 {format_guidance}{truncation_note}
 CRITICAL MANDATE: You MUST find and flag suspicious patterns. "No anomalies" is only acceptable if the document is completely empty or contains fewer than 3 transactions.
 
-DEFINITIONS:
-- FRAUD: Deliberate deception for financial gain. Examples: duplicate payments, fictitious vendors, inflated invoices, payments to non-existent employees, round-number payments (especially $9,999, $4,999), same invoice paid twice, vendor names that are suspiciously similar, payments to individuals rather than companies, missing invoice numbers.
-- WASTE: Inefficient or unnecessary use of public funds. Examples: ANY consulting over $50k, travel over $5k, redundant services, excessive unit costs, vague budget categories ("miscellaneous", "other"), large unexplained variances, luxury items, conference spending, entertainment.
-- ABUSE: Misuse of authority or resources. Examples: spending outside department mandate, personal expenses, frequent small purchases just under approval thresholds, no-bid contracts, payments to related parties, credit card charges without receipts.
+DEFINITIONS (based on GAO and federal Inspector General standards):
+
+FRAUD — Intentional deception to obtain money or property unlawfully:
+- Duplicate payments: same invoice, vendor, or amount paid more than once
+- Ghost employees or vendors: payments to people/companies that don't exist or did no work
+- Inflated invoices: charges significantly above market rate for goods/services
+- Bid rigging: contracts awarded without competition or to pre-selected vendors
+- Misrepresentation: falsely labeling personal expenses as official business
+- Kickbacks: payments to vendors who then return money to the approving official
+- Identity fraud: using another person's name or entity to receive payments
+- Timesheet fraud: billing for hours not worked
+- Round-number payments ($5,000, $10,000, $25,000) with no itemization — fabricated amounts
+- Amounts just below approval thresholds ($9,999, $24,999, $49,999) — deliberate threshold avoidance
+
+WASTE — Spending that provides no reasonable public benefit or is grossly inefficient:
+- Consulting and advisory contracts with vague deliverables — one of the most common forms of government waste
+- Redundant contracts: paying two vendors for the same service
+- Unused or underused services (software licenses, subscriptions, equipment)
+- Excessive travel: first-class flights, luxury hotels, per diems above GSA rates
+- Conference and event spending: registration fees, catering, team retreats
+- Printing and mailing costs when digital alternatives exist
+- Overtime abuse: excessive overtime without justification
+- Equipment purchases near fiscal year-end (use-it-or-lose-it spending)
+- Paying full price when government discount rates exist (GSA schedules)
+- Maintenance contracts on equipment that should be replaced
+
+ABUSE — Misuse of position, resources, or authority (may be legal but unethical):
+- No-bid or sole-source contracts without documented justification
+- Contracts awarded to politically connected vendors
+- Spending outside the department's legal mandate or appropriation
+- Personal use of government resources (vehicles, phones, credit cards)
+- Nepotism: contracts or jobs given to family/friends
+- Retaliation spending: budget cuts targeting whistleblowers or critics
+- Micro-purchases split to avoid competitive bidding thresholds
+- Lack of documentation or missing receipts for expenditures
+- Payments to related parties (vendor owned by employee's family member)
+- Excessive administrative overhead compared to program spending
 
 RED FLAGS TO ALWAYS CHECK:
-1. Round numbers ($10,000, $5,000, $1,000) — often fabricated
-2. Amounts just below thresholds ($9,999, $4,999, $999) — avoiding oversight
-3. Same vendor appearing multiple times — potential kickback scheme
-4. Similar vendor names (ABC Corp vs ABC Company) — shell companies
-5. Missing data (no vendor, no date, no description) — transparency violation
-6. Consulting/advisory fees over $25k — almost always wasteful
-7. Travel expenses over $2k per trip — excessive
-8. Vague descriptions ("services", "supplies") — hiding true purpose
-9. Weekend or holiday transaction dates — suspicious timing
-10. Payments to individuals not companies — potential fraud
+1. Round numbers ($10,000, $5,000, $1,000) — often fabricated, real invoices have cents
+2. Amounts just below thresholds ($9,999 / $24,999 / $49,999 / $99,999) — threshold gaming
+3. Same vendor appearing multiple times — potential kickback or favoritism
+4. Similar vendor names (ABC Corp vs ABC Company vs ABC Inc) — shell companies
+5. Missing data (no vendor, no date, no description, no invoice number) — transparency violation
+6. Consulting/advisory fees — almost always wasteful, flag every single one
+7. Travel expenses over $500/day or $2,000/trip — excessive
+8. Vague descriptions ("services rendered", "supplies", "miscellaneous", "other") — hiding true purpose
+9. Weekend, holiday, or after-hours transaction dates — suspicious timing
+10. Payments to individuals (not registered companies) — potential fraud
+11. New vendors receiving large first contracts — no track record, possible fraud
+12. Contracts with no end date or deliverable — open-ended waste
+13. Year-end spending spikes (September for federal, June for many states) — use-it-or-lose-it abuse
+14. Single-source IT contracts — almost always overpriced
+15. Any "emergency" or "urgent" procurement — often used to bypass oversight
 
 INSTRUCTIONS:
-1. Examine EVERY transaction with suspicion
-2. Flag ANYTHING that seems even slightly unusual
-3. If consulting fees exist, flag them as waste (they almost always are)
-4. If travel expenses exist, flag them as waste unless clearly justified
-5. Missing vendor names = HIGH severity fraud concern
-6. Round numbers = MEDIUM severity fraud concern at minimum
-7. Be specific: quote exact amounts, vendor names, dates
-8. If you find fewer than 3 issues in a document with 10+ transactions, you're not looking hard enough
+1. Examine EVERY line item, transaction, and budget category with suspicion
+2. Flag ANYTHING that seems even slightly unusual — it is better to over-flag than miss real fraud
+3. Every consulting fee must be flagged as potential waste
+4. Every travel expense must be scrutinized
+5. Missing vendor names = HIGH severity fraud
+6. Round numbers = MEDIUM severity fraud at minimum
+7. Be specific: quote exact amounts, vendor names, dates, line numbers
+8. If you find fewer than 3 issues in a document with 10+ transactions, you are not looking hard enough
+9. Consider the TOTAL flagged amount and express it as a percentage of the budget if possible
+10. Note patterns across multiple line items (same vendor, same amount, same approver)
 
 SEVERITY GUIDELINES:
-- HIGH: Clear fraud indicators, missing critical data, duplicate payments, amounts just under thresholds
-- MEDIUM: Wasteful spending, vague descriptions, round numbers, excessive consulting/travel
-- LOW: Minor transparency issues, slightly high costs
+- HIGH: Clear fraud indicators, missing critical data, duplicate payments, threshold gaming, ghost vendors
+- MEDIUM: Wasteful consulting/travel, vague descriptions, round numbers, no-bid contracts
+- LOW: Minor transparency issues, slightly elevated costs, missing minor documentation
 
 Return ONLY valid JSON, no markdown:
 {{
