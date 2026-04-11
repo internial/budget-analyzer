@@ -78,6 +78,13 @@ jobs:
           pip install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
           cd build/pypdf_layer && zip -r ../pypdf_layer.zip python/ -q
 
+      - name: Build Lambda zip packages
+        working-directory: .
+        run: |
+          cd lambda/upload_handler && zip -r ../../terraform/build/upload_handler.zip . -q
+          cd ../../lambda/document_processor && zip -r ../../terraform/build/document_processor.zip . -q
+          cd ../../lambda/ai_analyzer && zip -r ../../terraform/build/ai_analyzer.zip . -q
+
       - name: Check Terraform formatting
         run: terraform fmt -check
 
@@ -170,6 +177,13 @@ jobs:
           mkdir -p build/pypdf_layer/python
           pip install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
           cd build/pypdf_layer && zip -r ../pypdf_layer.zip python/ -q
+
+      - name: Build Lambda zip packages
+        working-directory: .
+        run: |
+          cd lambda/upload_handler && zip -r ../../terraform/build/upload_handler.zip . -q
+          cd ../../lambda/document_processor && zip -r ../../terraform/build/document_processor.zip . -q
+          cd ../../lambda/ai_analyzer && zip -r ../../terraform/build/ai_analyzer.zip . -q
 
       - name: Download Terraform plan artifacts
         uses: actions/download-artifact@v6
