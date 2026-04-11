@@ -92,6 +92,33 @@ Frontend displays:
 
 ---
 
+## IAM & Security
+
+**Least-Privilege Access Model** — Each Lambda has its own dedicated IAM role with only the permissions it needs:
+
+**upload_handler role:**
+- S3: PutObject only to uploads bucket
+- DynamoDB: Query and PutItem (duplicate check + write pending status)
+- CloudWatch Logs, X-Ray tracing, SQS DLQ access
+
+**document_processor role:**
+- S3: GetObject from uploads bucket (read-only)
+- Lambda: InvokeFunction permission for ai_analyzer only
+- CloudWatch Logs, X-Ray tracing, SQS DLQ access
+
+**ai_analyzer role:**
+- Bedrock: InvokeModel for Nova Lite model only (specific ARN restriction)
+- DynamoDB: Full CRUD on results table
+- CloudWatch Logs, X-Ray tracing, SQS DLQ access
+
+**Security best practices:**
+- No shared "god mode" roles — each Lambda has separate role
+- Resource-specific ARNs (not `Resource: "*"` except CloudWatch/X-Ray)
+- Action-specific permissions (GetObject vs PutObject, not `s3:*`)
+- Bedrock model ARN restriction prevents access to other AI models
+
+---
+
 ## The Three Lambda Functions
 
 **upload_handler** — The gatekeeper
@@ -104,7 +131,7 @@ Frontend displays:
 - Triggered automatically when a file lands in S3
 - PDF: uses pypdf to extract text from every page, skips image-only pages
 - CSV: if small, sends everything; if large, takes a smart sample (first 300 rows + ~400 random middle rows + last 300 rows)
-- Passes the text to the AI analyzer
+- Invokes ai_analyzer asynchronously (non-blocking — returns immediately, AI processing happens in parallel)
 
 **ai_analyzer** — The auditor
 - Sends the text to Amazon Bedrock with a detailed forensic auditor prompt
