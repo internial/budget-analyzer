@@ -2,6 +2,8 @@
 
 A web app that lets anyone upload a government budget document and uses AI to automatically find fraud, waste, and abuse. Upload a file, the AI reads it like a skeptical government auditor, and you get a detailed report — analysis typically takes 1–3 minutes depending on file size.
 
+**[Watch Demo Video](https://youtu.be/3ZYjXN-Bdjw)**
+
 ---
 
 ## The Problem it Solves
@@ -25,9 +27,59 @@ Government budget documents are public — but they're hundreds of pages long an
 
 ![Architecture](docs/architecture.png)
 
+### Architecture Diagram
+
+```
+User (Browser)
+│
+│  Upload PDF/CSV
+▼
+Next.js Frontend (localhost)
+│
+│  POST /upload
+▼
+API Gateway (REST API)
+│
+├──► upload_handler Lambda
+│         │
+│         ├── Validates file (PDF/CSV, max 10MB)
+│         ├── Computes SHA-256 hash (duplicate detection)
+│         ├── Checks DynamoDB for existing hash
+│         │     └── If duplicate → return cached document_id
+│         ├── Stores file in S3 (uploads/)
+│         └── Writes "pending" record to DynamoDB
+│
+│  S3 ObjectCreated event
+▼
+document_processor Lambda
+│
+├── PDF → extracts text page by page (pypdf)
+├── CSV → smart samples rows if file is too large
+│         (first 300 + ~400 random middle + last 300)
+└── Invokes ai_analyzer Lambda (async)
+│
+▼
+ai_analyzer Lambda
+│
+├── Sends text to Amazon Bedrock (Nova Lite)
+│     └── Prompt: forensic gov't auditor
+│           detects fraud, waste, abuse
+├── Parses AI JSON response
+└── Saves results to DynamoDB (status: complete)
+│
+│  GET /results?documentId=...  (polls every 5s)
+▼
+API Gateway → ai_analyzer Lambda → DynamoDB → returns results
+│
+▼
+Frontend displays:
+- Document Summary
+- Fraud / Waste / Abuse counts
+- Executive Summary
+- Detected Anomalies (with severity)
+```
+
 ![Observability](docs/observability.png)
-
-
 
 ---
 
