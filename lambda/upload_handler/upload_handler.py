@@ -15,6 +15,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import boto3
+
 dynamodb = boto3.client("dynamodb")
 s3 = boto3.client("s3")
 
