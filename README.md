@@ -1,194 +1,105 @@
 # Gov't Budget Auditor
 
-An AI-powered web application that automatically detects fraud, waste, and abuse in government budget documents. Upload a PDF or CSV — the AI reads every line item and flags suspicious spending based on federal auditing standards used by the GAO and Inspector General offices.
+A web app that lets anyone upload a government budget document and uses AI to automatically find fraud, waste, and abuse. Upload a file, the AI reads it like a skeptical government auditor, and you get a detailed report — analysis typically takes 1–3 minutes depending on file size.
 
 ---
 
-## Architecture Diagram
+## The Problem it Solves
 
-```
-User (Browser)
-     │
-     │  Upload PDF/CSV
-     ▼
-Next.js Frontend (localhost)
-     │
-     │  POST /upload
-     ▼
-API Gateway (REST API)
-     │
-     ├──► upload_handler Lambda
-     │         │
-     │         ├── Validates file (PDF/CSV, max 10MB)
-     │         ├── Computes SHA-256 hash (duplicate detection)
-     │         ├── Checks DynamoDB for existing hash
-     │         │     └── If duplicate → return cached document_id
-     │         ├── Stores file in S3 (uploads/)
-     │         └── Writes "pending" record to DynamoDB
-     │
-     │  S3 ObjectCreated event
-     ▼
-document_processor Lambda
-     │
-     ├── PDF → extracts text page by page (pypdf)
-     ├── CSV → smart samples rows if file is too large
-     │         (first 300 + ~400 random middle + last 300)
-     └── Invokes ai_analyzer Lambda (async)
-               │
-               ▼
-         ai_analyzer Lambda
-               │
-               ├── Sends text to Amazon Bedrock (Nova Lite)
-               │     └── Prompt: forensic gov't auditor
-               │           detects fraud, waste, abuse
-               ├── Parses AI JSON response
-               └── Saves results to DynamoDB (status: complete)
-
-     │
-     │  GET /results?documentId=...  (polls every 5s)
-     ▼
-API Gateway → ai_analyzer Lambda → DynamoDB → returns results
-     │
-     ▼
-Frontend displays:
-  - Document Summary
-  - Fraud / Waste / Abuse counts
-  - Executive Summary
-  - Detected Anomalies (with severity)
-```
+Government budget documents are public — but they're hundreds of pages long and nobody reads them. Auditors cost money and take weeks. This tool scans an entire budget document and surfaces exactly what a human auditor would flag.
 
 ---
 
-## AWS Services Used
+## How it Works (Plain English)
 
-| Service | Why |
+1. You go to the website and drag in a PDF or CSV
+2. The file goes to AWS (Amazon's cloud)
+3. Text is extracted from every page
+4. That text is sent to an AI with a very specific prompt: *"You are a highly skeptical government auditor. Find fraud, waste, and abuse."*
+5. The AI returns a structured report
+6. You see the results on screen — what the document is about, how many issues were found, and every suspicious item with a severity rating
+
+---
+
+## AWS Architecture
+
+![Architecture](docs/architecture.png)
+
+![Observability](docs/observability.png)
+
+
+
+---
+
+## AWS Services and Why Each One
+
+| Service | What it does in this project |
 |---|---|
-| **API Gateway** | Exposes two REST endpoints: `POST /upload` and `GET /results`. Acts as the front door to the backend. |
-| **Lambda (x3)** | Serverless functions — no server to manage, pay only when running. Three separate functions keep responsibilities isolated. |
-| **S3** | Stores uploaded files. Also acts as the trigger — when a file lands in S3, it automatically wakes up the document processor. |
-| **DynamoDB** | Stores analysis results. Fast key-value lookups by document ID. Also has a secondary index on file hash for duplicate detection. |
-| **Amazon Bedrock** | Managed AI service. Uses Amazon Nova Lite model to analyze document content and return structured fraud/waste/abuse findings. |
-| **CloudWatch** | Logs from all three Lambda functions. Alarms fire if any Lambda has errors. Dashboard shows system health at a glance. |
-| **SNS** | Sends email alerts when CloudWatch alarms trigger or AWS budget thresholds are crossed. |
-| **CloudTrail** | Audit log of all AWS API calls — who did what and when. Single-region, stored in a dedicated S3 bucket. |
-| **SQS (Dead Letter Queue)** | Catches failed Lambda invocations so nothing is silently lost. |
-| **AWS Budgets** | Alerts at 50%, 80%, and 100% of the $5/month budget cap. |
-| **Terraform** | All AWS infrastructure defined as code. One command deploys everything. |
+| **API Gateway** | The front door — exposes `POST /upload` and `GET /results` to the browser |
+| **Lambda (×3)** | Serverless functions — no server to manage, pay only when running |
+| **S3** | Stores uploaded files AND automatically triggers processing when a file arrives |
+| **DynamoDB** | Stores analysis results, indexed by file hash for instant duplicate detection |
+| **Amazon Bedrock** | The AI — Nova Lite model reads the document and returns fraud findings |
+| **CloudWatch** | Logs everything, fires alarms if any Lambda has errors |
+| **SNS** | Sends email alerts when alarms trigger or budget is exceeded |
+| **CloudTrail** | Audit log of every AWS action — who did what and when |
+| **SQS Dead Letter Queue** | Catches failed Lambda invocations so nothing is silently lost |
+| **AWS Budgets** | Alerts at 50%, 80%, 100% of the $5/month cap |
+| **Terraform** | All infrastructure defined as code — one command deploys everything |
+| **GitHub Actions** | Push to main → automatically deploys to AWS |
 
 ---
 
-## Backend Tech Stack
+## The Three Lambda Functions
 
-| Technology | Role |
-|---|---|
-| Python 3.11 | All three Lambda functions |
-| pypdf | Extracts text from PDF files |
-| boto3 | AWS SDK — talks to S3, DynamoDB, Bedrock, Lambda |
-| Amazon Bedrock (Nova Lite) | AI model for fraud/waste/abuse analysis |
-| Terraform | Infrastructure as code |
-| GitHub Actions | CI/CD — push to main → auto deploy |
+**upload_handler** — The gatekeeper
+- Validates the file is PDF or CSV, under 10MB
+- Computes a SHA-256 fingerprint of the file
+- Checks if this exact file was analyzed before — if yes, returns cached results (saves AI cost)
+- Saves the file to S3 and writes a "pending" record to DynamoDB
+
+**document_processor** — The reader
+- Triggered automatically when a file lands in S3
+- PDF: uses pypdf to extract text from every page, skips image-only pages
+- CSV: if small, sends everything; if large, takes a smart sample (first 300 rows + ~400 random middle rows + last 300 rows)
+- Passes the text to the AI analyzer
+
+**ai_analyzer** — The auditor
+- Sends the text to Amazon Bedrock with a detailed forensic auditor prompt
+- The prompt defines fraud, waste, and abuse using real GAO and Inspector General standards
+- Returns a document summary, fraud/waste/abuse counts, and every suspicious item with severity
+- Saves everything to DynamoDB
 
 ---
 
-## Backend Flow (Step by Step)
+## The AI Prompt
 
-1. User selects a PDF or CSV on the website and clicks upload
-2. Frontend reads the file, encodes it as base64, sends it to `POST /upload` via API Gateway
-3. `upload_handler` Lambda receives the file, computes a SHA-256 hash
-4. It checks DynamoDB — if this exact file was uploaded before, it returns the cached result immediately (no AI cost)
-5. If new, it saves the file to S3 under `uploads/` and writes a `pending` record to DynamoDB
-6. S3 automatically triggers `document_processor` Lambda
-7. `document_processor` extracts text from the file:
-   - PDF: reads each page using pypdf, skips image-only pages
-   - CSV: if small, sends everything; if large, takes a smart sample (first 300 rows + ~400 random middle rows + last 300 rows)
-8. It invokes `ai_analyzer` Lambda asynchronously, passing the text directly in the payload
-9. `ai_analyzer` sends the text to Amazon Bedrock with a detailed forensic auditor prompt
-10. Bedrock returns a structured JSON with fraud/waste/abuse findings
-11. `ai_analyzer` saves the results to DynamoDB with `status: complete`
-12. Meanwhile, the frontend polls `GET /results` every 5 seconds
-13. Once DynamoDB shows `status: complete`, the frontend displays the full report
+The AI is told it is a "highly skeptical forensic government auditor with 20 years of experience." It is given:
+- Exact definitions of fraud, waste, and abuse based on federal standards
+- 15 specific red flags to always check (round numbers, threshold gaming, vague descriptions, etc.)
+- Instructions to flag everything — it is better to over-flag than miss real fraud
+- A mandate that "no anomalies" is only acceptable if the document has fewer than 3 transactions
 
 ---
 
 ## Limitations
 
-**File size**
-- Maximum upload size is 10 MB (API Gateway hard limit)
-- The AI can only read ~180,000 characters at once
-- Large PDFs (200+ pages) will only have the first portion analyzed — the user is warned
-- Large CSVs use smart row sampling — not every row is guaranteed to be analyzed
-
-**PDF extraction**
-- Only works on text-based PDFs — scanned documents (images of text) cannot be read
-- Images, charts, and graphs inside PDFs are ignored — only text is extracted
-
-**AI accuracy**
-- The AI may over-flag legitimate spending (false positives) — it is intentionally aggressive
-- The AI may miss fraud that requires cross-referencing external data (e.g., verifying a vendor actually exists)
-- Analysis quality depends on how much useful text is in the document
-
-**Performance**
-- Analysis takes 30–90 seconds depending on document size
-- Very large documents may approach the 300-second Lambda timeout
-
-**No authentication**
-- The API has no login or user accounts — anyone with the API URL can upload files
-- Suitable for personal/demo use, not production public deployment
+- **10 MB max** file size (API Gateway hard limit)
+- **Large PDFs**: text is capped at 180,000 characters — for dense documents this may cover only the first portion. User is warned when this happens.
+- **Large CSVs**: smart sampling — first 300 rows, ~400 random middle rows, last 300 rows. Rows outside the sample are not analyzed.
+- **Scanned PDFs**: if the PDF is a photo of a document, text cannot be extracted
+- **No login**: anyone with the URL can upload — demo use only
+- **AI can be wrong**: it may flag legitimate spending (false positives) or miss fraud that requires external data to verify
+- **Analysis time**: 1–3 minutes for most files, up to 5 minutes for very large ones
 
 ---
 
-## Key Files
+## Run Locally
 
-```
-.
-├── lambda/
-│   ├── upload_handler/upload_handler.py     # Validates uploads, deduplication, S3 + DynamoDB write
-│   ├── document_processor/document_processor.py  # PDF/CSV text extraction, smart CSV sampling
-│   └── ai_analyzer/ai_analyzer.py           # Bedrock AI call, fraud detection prompt, saves results
-│
-├── frontend/
-│   ├── app/page.js                          # Main page — upload, processing, results states
-│   ├── app/layout.js                        # HTML shell, page title
-│   ├── components/Uploader.js               # Drag-and-drop file upload component
-│   ├── components/Dashboard.js              # Results display — summary, anomalies, warnings
-│   └── lib/api.js                           # API calls — upload and polling logic
-│
-├── terraform/
-│   ├── main.tf                              # All AWS infrastructure (Lambda, S3, DynamoDB, API Gateway, etc.)
-│   ├── variables.tf                         # Configurable settings (region, budget, model ID)
-│   └── outputs.tf                           # Useful values after deploy (API URL, bucket names)
-│
-└── .github/workflows/
-    ├── deploy.yml                           # Push to main → build pypdf layer → terraform apply
-    └── ci.yml                               # PR checks — lint, build, Python compile, Terraform validate
-```
+**Prerequisites:** AWS CLI configured, Node.js 20
 
----
+The backend deploys automatically to AWS via GitHub Actions on every push to `main`. To run the frontend locally:
 
-## Running Locally
-
-**Prerequisites:** AWS CLI configured, Node.js 20, Python 3.11, Terraform
-
-**1. Deploy the backend**
-```bash
-cd terraform
-terraform init
-terraform apply
-```
-
-**2. Get the API URL**
-```bash
-terraform output api_gateway_endpoint
-```
-
-**3. Configure the frontend**
-
-Create `frontend/.env.local`:
-```
-AWS_API_URL=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod
-```
-
-**4. Run the frontend**
 ```bash
 cd frontend
 npm install
@@ -197,19 +108,10 @@ npm run dev
 
 Open http://localhost:3000
 
+The frontend talks to the live AWS backend via API Gateway.
+
 ---
 
 ## Cost
 
-Running this project costs approximately **$0.01–$0.05/month** at low usage. The only meaningful cost is Amazon Bedrock — roughly $0.0001 per document analyzed. AWS Budget alerts are configured at $5/month.
-
----
-
-## CI/CD
-
-Every push to `main` triggers GitHub Actions:
-- Lints and builds the frontend
-- Compiles all Python Lambda code
-- Validates Terraform configuration
-- Builds the pypdf Lambda layer (cached by version)
-- Runs `terraform apply` to deploy all changes to AWS
+About **$0.01–$0.05/month** at low usage. Bedrock charges per token processed — exact cost per document varies by file size. All other services are within AWS free tier at this usage level.
