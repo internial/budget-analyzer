@@ -1,7 +1,7 @@
 import styles from './Dashboard.module.css';
 
 export default function Dashboard({ results, isDuplicate, onReset }) {
-  const { alert_summary, human_readable_summary, anomaly_details } = results;
+  const { alert_summary, human_readable_summary, anomaly_details, document_summary } = results;
 
   const getSeverityClass = (sev) => {
     if (sev === 'high') return styles.sevHigh;
@@ -52,6 +52,13 @@ export default function Dashboard({ results, isDuplicate, onReset }) {
           </span>
         </div>
       </div>
+
+      {document_summary && (
+        <div className={styles.glassSection}>
+          <h3 className={styles.sectionTitle}>Document Summary</h3>
+          <p className={styles.summaryText}>{document_summary}</p>
+        </div>
+      )}
 
       <div className={styles.glassSection}>
         <h3 className={styles.sectionTitle}>Executive Summary</h3>

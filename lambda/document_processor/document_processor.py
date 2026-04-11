@@ -142,6 +142,13 @@ def _invoke_ai_analyzer(document_id: str, payload: dict[str, Any], out_key: str,
             "file_hash": file_hash,
         }).encode("utf-8"),
     )
+    # Delete the extracted text file — contents are passed directly in the payload
+    # and we don't want to store raw document text long-term
+    try:
+        s3.delete_object(Bucket=UPLOAD_BUCKET, Key=out_key)
+        logger.info("Deleted extracted content file: %s", out_key)
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not delete extracted file %s", out_key)
 
 
 def _invoke_ai_analyzer_error(document_id: str, source_key: str, file_hash: str, message: str) -> None:

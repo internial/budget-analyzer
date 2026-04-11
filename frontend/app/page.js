@@ -32,9 +32,9 @@ export default function Home() {
   return (
     <main style={{ minHeight: '100vh', padding: '4rem 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-        <h1 className="title">Budget Analyzer</h1>
+        <h1 className="title">Government Fraud, Waste & Abuse Detector</h1>
         <p className="subtitle">
-          Upload your budget exports to continuously audit transactions for Fraud, Waste, and Abuse using AI.
+          Upload government budget documents to detect fraud, waste, and abuse using AI — powered by GAO auditing standards.
         </p>
       </div>
 

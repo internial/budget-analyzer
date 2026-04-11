@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Budget Analyzer",
-  description: "AI-assisted analysis for budget anomalies and risk signals.",
+  title: "Gov't Fraud, Waste & Abuse Detector",
+  description: "AI-powered detection of fraud, waste, and abuse in government budget documents.",
 };
 
 export default function RootLayout({ children }) {

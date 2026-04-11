@@ -160,6 +160,7 @@ SEVERITY GUIDELINES:
 Return ONLY valid JSON, no markdown:
 {{
   "document_id": "{document_id}",
+  "document_summary": "<2-paragraph plain-English summary of what this document is: what agency/department, what time period, total budget size, main spending categories, and any notable context. Write this as if briefing a congressional oversight committee.>",
   "alert_summary": {{"fraud": <number>, "waste": <number>, "abuse": <number>}},
   "anomaly_details": [
     {{
@@ -190,6 +191,7 @@ DOCUMENT CONTENT:
 
 def _save(document_id: str, extracted_key: str, file_hash: str, report: dict[str, Any]) -> None:
     report.setdefault("document_id", document_id)
+    report.setdefault("document_summary", "")
     report.setdefault("alert_summary", {"fraud": 0, "waste": 0, "abuse": 0})
     report.setdefault("anomaly_details", [])
     report.setdefault("human_readable_summary", "No summary produced.")
@@ -198,6 +200,7 @@ def _save(document_id: str, extracted_key: str, file_hash: str, report: dict[str
         "document_id": document_id,
         "document_name": extracted_key,
         "upload_date": datetime.now(timezone.utc).isoformat(),
+        "document_summary": report["document_summary"],
         "alert_summary": {
             k: int(report["alert_summary"].get(k, 0))
             for k in ("fraud", "waste", "abuse")
