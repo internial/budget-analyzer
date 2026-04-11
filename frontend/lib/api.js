@@ -37,14 +37,19 @@ export async function pollForResults(documentId, maxAttempts = 40) {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await fetch(`${API_URL}/results?documentId=${documentId}`);
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      // If status is still pending after returning, keep polling
+      if (data.status === 'pending') {
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      return data;
     }
-    // If 404, it's still processing
     if (res.status === 404) {
-      await new Promise(r => setTimeout(r, 5000)); // wait 5s before polling again
+      await new Promise(r => setTimeout(r, 5000));
     } else {
       throw new Error(`Failed to fetch results: ${res.status}`);
     }
   }
-  throw new Error('AI analysis timed out after 3+ minutes. Please try again.');
+  throw new Error('Analysis timed out. Please try uploading again.');
 }

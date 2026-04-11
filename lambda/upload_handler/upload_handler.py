@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 dynamodb = boto3.client("dynamodb")
@@ -35,21 +35,28 @@ def _get_results_by_hash(file_hash: str) -> dict[str, Any] | None:
             TableName=DYNAMODB_TABLE_NAME,
             IndexName="file_hash-index",
             KeyConditionExpression="#file_hash = :file_hash",
-            ExpressionAttributeNames={
-                "#file_hash": "file_hash"
-            },
-            ExpressionAttributeValues={
-                ":file_hash": {"S": file_hash}
-            },
+            ExpressionAttributeNames={"#file_hash": "file_hash"},
+            ExpressionAttributeValues={":file_hash": {"S": file_hash}},
             Limit=1
         )
         if response["Items"]:
             item = response["Items"][0]
+            status = _dynamo_string(item, "status")
+            # If stuck pending for over 5 minutes, treat as failed and reprocess
+            if status == "pending":
+                upload_date = _dynamo_string(item, "upload_date")
+                try:
+                    created_at = datetime.fromisoformat(upload_date)
+                    if datetime.now(timezone.utc) - created_at > timedelta(minutes=5):
+                        return None
+                except Exception:
+                    return None
             extracted_key = _dynamo_string(item, "document_name") or _dynamo_string(item, "s3_key")
             return {
                 "document_id": _dynamo_string(item, "document_id"),
                 "s3_key": extracted_key,
                 "file_hash": _dynamo_string(item, "file_hash"),
+                "status": status,
             }
     except Exception as exc:  # noqa: BLE001
         print(f"Error querying DynamoDB for file_hash {file_hash}: {exc}")
