@@ -8,13 +8,12 @@ S3 then triggers document_processor (configured in Terraform).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import Any
-
-import boto3
-import hashlib
 
 dynamodb = boto3.client("dynamodb")
 s3 = boto3.client("s3")
@@ -129,7 +128,7 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "document_id": {"S": document_id},
             "file_hash": {"S": file_hash},
             "document_name": {"S": key},
-            "upload_date": {"S": __import__("datetime").datetime.utcnow().isoformat()},
+            "upload_date": {"S": datetime.now(timezone.utc).isoformat()},
             "status": {"S": "pending"},
         },
         ConditionExpression="attribute_not_exists(document_id)",

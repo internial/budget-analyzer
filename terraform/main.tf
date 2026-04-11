@@ -520,6 +520,7 @@ resource "aws_iam_role_policy" "document_processor" {
       {
         Effect = "Allow"
         Action = [
+          "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",
           "xray:PutTraceSegments",
@@ -583,6 +584,7 @@ resource "aws_iam_role_policy" "ai_analyzer" {
       {
         Effect = "Allow"
         Action = [
+          "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents",
           "xray:PutTraceSegments",
