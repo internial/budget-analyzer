@@ -136,24 +136,6 @@ The AI is told it is a "highly skeptical forensic government auditor with 20 yea
 
 ---
 
-## Run Locally
-
-**Prerequisites:** AWS CLI configured, Node.js 20
-
-The backend deploys automatically to AWS via GitHub Actions on every push to `main`. To run the frontend locally:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:3000
-
-The frontend talks to the live AWS backend via API Gateway.
-
----
-
 ## FinOps & Cost Optimization
 
 This project was designed with cost efficiency in mind:
@@ -172,3 +154,23 @@ This project was designed with cost efficiency in mind:
 **Actual cost at low usage:** ~$0.01–$0.05/month (primarily Bedrock token charges)
 
 **Why not hosted permanently:** At demo/portfolio scale, the ongoing cost (even if minimal) isn't justified. The infrastructure can be redeployed in minutes when needed for live demos.
+
+---
+
+## Run Locally
+
+**Prerequisites:** AWS CLI configured, Node.js 20
+
+The backend deploys automatically to AWS via GitHub Actions on every push to `main`. To run the frontend locally:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000
+
+The frontend talks to the live AWS backend via API Gateway.
+
+---
