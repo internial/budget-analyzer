@@ -19,106 +19,8 @@ env:
   TF_IN_AUTOMATION: "true"
 
 jobs:
-  plan:
+  deploy:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: terraform
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Select AWS auth mode
-        id: auth
-        env:
-          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: |
-          if [ -n "$AWS_ROLE_TO_ASSUME" ]; then
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          elif [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "mode=keys" >> "$GITHUB_OUTPUT"
-          else
-            echo "No AWS credentials configured. Set repository variable AWS_ROLE_TO_ASSUME for OIDC or AWS access key secrets." >&2
-            exit 1
-          fi
-
-      - name: Configure AWS credentials with OIDC
-        if: steps.auth.outputs.mode == 'oidc'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Configure AWS credentials with access keys
-        if: steps.auth.outputs.mode == 'keys'
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-
-      - name: Setup Python (for pypdf layer build)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Initialize Terraform
-        run: terraform init
-
-      - name: Create build directory and pypdf layer
-        run: |
-          mkdir -p build/pypdf_layer/python
-          pip install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
-          cd build/pypdf_layer && zip -r ../pypdf_layer.zip python/ -q
-
-      - name: Build Lambda zip packages
-        working-directory: .
-        run: |
-          cd lambda/upload_handler && zip -r ../../terraform/build/upload_handler.zip . -q
-          cd ../../lambda/document_processor && zip -r ../../terraform/build/document_processor.zip . -q
-          cd ../../lambda/ai_analyzer && zip -r ../../terraform/build/ai_analyzer.zip . -q
-
-      - name: Check Terraform formatting
-        run: terraform fmt -check
-
-      - name: Validate Terraform
-        run: terraform validate
-
-      - name: Create Terraform plan
-        run: terraform plan -out=tfplan
-
-      - name: Render Terraform plan
-        run: terraform show -no-color tfplan > tfplan.txt
-
-      - name: Add plan summary
-        run: |
-          {
-            echo "## Terraform Plan"
-            echo
-            echo '```'
-            sed -n '1,200p' tfplan.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload Terraform plan artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: terraform-plan
-          path: |
-            terraform/tfplan
-            terraform/tfplan.txt
-          retention-days: 7
-
-  apply:
-    runs-on: ubuntu-latest
-    needs: plan
     environment:
       name: production
 
@@ -142,7 +44,7 @@ jobs:
           elif [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
             echo "mode=keys" >> "$GITHUB_OUTPUT"
           else
-            echo "No AWS credentials configured. Set repository variable AWS_ROLE_TO_ASSUME for OIDC or AWS access key secrets." >&2
+            echo "No AWS credentials configured." >&2
             exit 1
           fi
 
@@ -169,39 +71,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Initialize Terraform
-        run: terraform init
-
       - name: Build pypdf Lambda layer
         run: |
           mkdir -p build/pypdf_layer/python
           pip install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
           cd build/pypdf_layer && zip -r ../pypdf_layer.zip python/ -q
 
-      - name: Build Lambda zip packages
-        working-directory: .
-        run: |
-          cd lambda/upload_handler && zip -r ../../terraform/build/upload_handler.zip . -q
-          cd ../../lambda/document_processor && zip -r ../../terraform/build/document_processor.zip . -q
-          cd ../../lambda/ai_analyzer && zip -r ../../terraform/build/ai_analyzer.zip . -q
+      - name: Initialize Terraform
+        run: terraform init
 
-      - name: Download Terraform plan artifacts
-        uses: actions/download-artifact@v6
-        with:
-          name: terraform-plan
-          path: terraform
-
-      - name: Apply Terraform plan
-        run: terraform apply -auto-approve tfplan
-
-      - name: Read deployed API endpoint
-        id: api
-        run: echo "api_url=$(terraform output -raw api_gateway_endpoint)" >> "$GITHUB_OUTPUT"
+      - name: Terraform apply
+        run: terraform apply -auto-approve
 
       - name: Smoke-test deployed API
         working-directory: .
         env:
           API_URL: ${{ steps.api.outputs.api_url }}
         run: python3 test_analyzer.py
-
-
