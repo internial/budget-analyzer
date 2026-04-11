@@ -132,12 +132,44 @@ Frontend displays:
 - PDF: uses pypdf to extract text from every page, skips image-only pages
 - CSV: if small, sends everything; if large, takes a smart sample (first 300 rows + ~400 random middle rows + last 300 rows)
 - Invokes ai_analyzer asynchronously (non-blocking — returns immediately, AI processing happens in parallel)
+- **Why async:** AI analysis takes 1-3 minutes; async prevents Lambda timeout and reduces execution time/cost
 
 **ai_analyzer** — The auditor
 - Sends the text to Amazon Bedrock with a detailed forensic auditor prompt
 - The prompt defines fraud, waste, and abuse using real GAO and Inspector General standards
 - Returns a document summary, fraud/waste/abuse counts, and every suspicious item with severity
 - Saves everything to DynamoDB
+
+---
+
+## Asynchronous Processing Architecture
+
+This project uses **async Lambda invocation** as a core design pattern for handling long-running AI analysis.
+
+**The Challenge:**
+AI analysis via Bedrock takes 1-3 minutes per document. If `document_processor` waited synchronously for `ai_analyzer` to complete, it would:
+- Run for 1-3 minutes doing nothing (just waiting)
+- Incur unnecessary Lambda execution costs
+- Risk timeout failures on large documents
+- Block S3 event processing for other uploads
+
+**The Solution:**
+`document_processor` invokes `ai_analyzer` **asynchronously** and returns immediately:
+
+1. `document_processor` extracts text (~5-10 seconds)
+2. Fires `ai_analyzer` with text payload (async invocation)
+3. Returns immediately — execution ends, billing stops
+4. `ai_analyzer` runs independently for 1-3 minutes
+5. Frontend polls `GET /results` every 5 seconds until status = "completed"
+
+**Benefits:**
+- **Cost optimization**: `document_processor` runs for seconds, not minutes
+- **No timeout risk**: Each Lambda operates within its own 15-minute limit
+- **Scalability**: 10 simultaneous uploads = 10 parallel `ai_analyzer` instances
+- **Decoupled architecture**: Functions are independent, easier to debug and monitor
+
+**Trade-off:**
+Frontend must implement polling instead of getting instant results — acceptable for 1-3 minute analysis time.
 
 ---
 
