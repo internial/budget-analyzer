@@ -12,17 +12,6 @@ Government budget documents are public — but they're hundreds of pages long an
 
 ---
 
-## How it Works (Plain English)
-
-1. You go to the website and drag in a PDF or CSV
-2. The file goes to AWS (Amazon's cloud)
-3. Text is extracted from every page
-4. That text is sent to an AI with a very specific prompt: *"You are a highly skeptical government auditor. Find fraud, waste, and abuse."*
-5. The AI returns a structured report
-6. You see the results on screen — what the document is about, how many issues were found, and every suspicious item with a severity rating
-
----
-
 ## AWS Architecture
 
 ![Architecture](docs/architecture.png)
@@ -93,6 +82,7 @@ Frontend displays:
 | **DynamoDB** | Stores analysis results, indexed by file hash for instant duplicate detection |
 | **Amazon Bedrock** | The AI — Nova Lite model reads the document and returns fraud findings |
 | **CloudWatch** | Logs everything, fires alarms if any Lambda has errors |
+| **X-Ray** | Traces Lambda execution, shows timing of calls to S3, DynamoDB, and Bedrock |
 | **SNS** | Sends email alerts when alarms trigger or budget is exceeded |
 | **CloudTrail** | Audit log of every AWS action — who did what and when |
 | **SQS Dead Letter Queue** | Catches failed Lambda invocations so nothing is silently lost |
@@ -164,6 +154,21 @@ The frontend talks to the live AWS backend via API Gateway.
 
 ---
 
-## Cost
+## FinOps & Cost Optimization
 
-About **$0.01–$0.05/month** at low usage. Bedrock charges per token processed — exact cost per document varies by file size. All other services are within AWS free tier at this usage level.
+This project was designed with cost efficiency in mind:
+
+**Infrastructure is not permanently hosted** — AWS resources were deployed for development and demonstration, then torn down to avoid ongoing charges. Terraform makes it trivial to `terraform destroy` and redeploy when needed.
+
+**Cost controls built-in:**
+- **AWS Budgets** — alerts at 50%, 80%, and 100% of $5/month spend limit
+- **CloudWatch Alarms** — monitors Lambda errors and triggers SNS email alerts
+- **Duplicate detection** — SHA-256 hash check prevents re-analyzing the same file (saves Bedrock AI costs)
+- **Smart sampling for large CSVs** — only processes ~1,000 rows instead of entire file
+- **Text truncation for large PDFs** — caps at 180,000 characters to control Bedrock token usage
+- **Serverless architecture** — pay only when code runs, no idle server costs
+- **Free tier usage** — Lambda, API Gateway, S3, DynamoDB, CloudWatch all within free tier at low usage
+
+**Actual cost at low usage:** ~$0.01–$0.05/month (primarily Bedrock token charges)
+
+**Why not hosted permanently:** At demo/portfolio scale, the ongoing cost (even if minimal) isn't justified. The infrastructure can be redeployed in minutes when needed for live demos.
