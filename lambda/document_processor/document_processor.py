@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import random
 from typing import Any
 
 import boto3
@@ -67,7 +68,6 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 "content": content[:MAX_CONTENT_CHARS],
                 "truncated": len(content) > MAX_CONTENT_CHARS,
             }
-
             out_key = _write_extracted(bucket, document_id, payload)
             _invoke_ai_analyzer(document_id, payload, out_key, file_hash)
             logger.info("Dispatched %s to ai_analyzer (%d chars)", key, len(content))
@@ -97,9 +97,41 @@ def _extract_pdf(raw: bytes) -> tuple[str, str]:
 
 
 def _extract_csv(raw: bytes) -> tuple[str, str]:
-    # Return the raw CSV text — the AI reads it directly
     text = raw.decode("utf-8", errors="replace")
-    return text, "csv"
+    lines = text.splitlines()
+
+    if not lines:
+        return "", "csv"
+
+    header = lines[0]
+    data_rows = lines[1:]
+    total_rows = len(data_rows)
+
+    # If small enough, send everything
+    if len(text) <= MAX_CONTENT_CHARS:
+        return text, "csv"
+
+    # Smart sampling: first 300, last 300, 400 random from middle
+    first = data_rows[:300]
+    last = data_rows[-300:] if total_rows > 300 else []
+    middle_pool = data_rows[300:total_rows - 300] if total_rows > 600 else []
+    middle = random.sample(middle_pool, min(400, len(middle_pool))) if middle_pool else []
+
+    sampled = first + sorted(middle, key=lambda r: data_rows.index(r) if r in data_rows else 0) + last
+    sampled_text = "\n".join([header] + sampled)
+
+    logger.info(
+        "CSV sampled: %d of %d rows (first 300 + %d middle + last 300)",
+        len(sampled), total_rows, len(middle)
+    )
+
+    note = (
+        f"NOTE: This CSV has {total_rows:,} rows. Showing a representative sample of "
+        f"{len(sampled):,} rows (first 300, ~400 random middle, last 300). "
+        f"Flag patterns that appear across multiple rows as higher severity.\n\n"
+    )
+
+    return note + sampled_text, "csv"
 
 
 def _parse_upload_key(key: str) -> tuple[str, str]:
