@@ -81,7 +81,12 @@ jobs:
         run: terraform init
 
       - name: Terraform apply
+        id: apply
         run: terraform apply -auto-approve
+
+      - name: Get API URL
+        id: api
+        run: echo "api_url=$(terraform output -raw api_url)" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test deployed API
         working-directory: .
