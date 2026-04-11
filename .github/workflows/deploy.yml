@@ -71,7 +71,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache pypdf Lambda layer
+        id: cache-pypdf
+        uses: actions/cache@v4
+        with:
+          path: terraform/build/pypdf_layer.zip
+          key: pypdf-layer-4.3.1
+
       - name: Build pypdf Lambda layer
+        if: steps.cache-pypdf.outputs.cache-hit != 'true'
         run: |
           mkdir -p build/pypdf_layer/python
           pip install pypdf==4.3.1 -t build/pypdf_layer/python --quiet
