@@ -79,6 +79,7 @@ Frontend displays:
 | **API Gateway** | The front door — exposes `POST /upload` and `GET /results` to the browser |
 | **Lambda (×3)** | Serverless functions — no server to manage, pay only when running |
 | **S3** | Stores uploaded files AND automatically triggers processing when a file arrives |
+| **S3 Cross-Region Replication** | Versioning enabled + automatic replication to us-west-2 for disaster recovery |
 | **DynamoDB** | Stores analysis results, indexed by file hash for instant duplicate detection |
 | **Amazon Bedrock** | The AI — Nova Lite model reads the document and returns fraud findings |
 | **CloudWatch** | Logs everything, fires alarms if any Lambda has errors |
@@ -116,6 +117,24 @@ Frontend displays:
 - Resource-specific ARNs (not `Resource: "*"` except CloudWatch/X-Ray)
 - Action-specific permissions (GetObject vs PutObject, not `s3:*`)
 - Bedrock model ARN restriction prevents access to other AI models
+
+---
+
+## Disaster Recovery
+
+**S3 Cross-Region Replication:**
+- Primary bucket: `us-east-1` (where uploads land)
+- Replica bucket: `us-west-2` (automatic async replication)
+- Versioning enabled on both buckets (protects against accidental deletion)
+- Replication IAM role with least-privilege access
+
+**Why this matters:**
+- If `us-east-1` region fails, uploaded files are safe in `us-west-2`
+- Versioning allows recovery of overwritten or deleted files
+- Meets compliance requirements for data durability
+
+**Recovery Time Objective (RTO):** Minutes (redeploy Lambda/API Gateway in backup region)  
+**Recovery Point Objective (RPO):** Seconds (S3 replication is near real-time)
 
 ---
 
